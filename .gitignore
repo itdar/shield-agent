@@ -1,0 +1,12 @@
+HELP.md
+
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+
+.vscode/
+
+.omc
+CLAUDE.md
