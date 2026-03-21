@@ -1,0 +1,48 @@
+# mcp-shield example configuration
+# Copy this file to mcp-shield.yaml and adjust values as needed.
+# All values shown here are the defaults.
+#
+# Environment variable overrides use the MCP_SHIELD_ prefix, e.g.:
+#   MCP_SHIELD_LOG_LEVEL=debug
+#   MCP_SHIELD_SECURITY_MODE=closed
+
+server:
+  # Address for the monitoring HTTP server (/healthz, /metrics).
+  monitor_addr: "127.0.0.1:9090"
+
+security:
+  # Mode controls what happens when authentication fails.
+  #   open   — log a warning but allow the request through (observation mode)
+  #   closed — reject requests that fail authentication
+  mode: "open"
+
+  # Path to the YAML file containing allowed agent public keys.
+  key_store_path: "keys.yaml"
+
+logging:
+  # Log verbosity level: debug | info | warn | error
+  level: "info"
+
+  # Log output format: json | text
+  format: "json"
+
+telemetry:
+  # Set to true to send anonymous usage statistics.
+  # No message content is ever collected.
+  enabled: false
+
+  # URL of the telemetry ingestion endpoint.
+  endpoint: "http://localhost:8080"
+
+  # How often (in seconds) to flush the local telemetry buffer.
+  batch_interval: 60
+
+  # Differential privacy epsilon parameter (higher = less noise, lower = more privacy).
+  epsilon: 1.0
+
+storage:
+  # Path to the SQLite database used to store action logs.
+  db_path: "mcp-shield.db"
+
+  # Number of days to retain log records before automatic deletion.
+  retention_days: 30
