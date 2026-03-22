@@ -92,7 +92,7 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	cachedStore := auth.NewCachedKeyStore(fileStore, 5*time.Minute)
 
 	// 5. Create AuthMiddleware.
-	authMW := auth.NewAuthMiddleware(cachedStore, cfg.Security.Mode, logger, func(status string) {
+	authMW := middleware.NewAuthMiddleware(cachedStore, cfg.Security.Mode, logger, func(status string) {
 		metrics.AuthTotal.WithLabelValues(status).Inc()
 	})
 
@@ -107,7 +107,7 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	)
 
 	// 7. Create LogMiddleware.
-	logMW := storage.NewLogMiddleware(db, logger, telCol)
+	logMW := middleware.NewLogMiddleware(db, logger, telCol)
 	defer logMW.Close()
 
 	// 8. Build middleware chain (Auth → Log).

@@ -88,7 +88,7 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		return fmt.Errorf("loading key store: %w", err)
 	}
 	cachedStore := auth.NewCachedKeyStore(fileStore, 5*time.Minute)
-	authMW := auth.NewAuthMiddleware(cachedStore, cfg.Security.Mode, logger, func(status string) {
+	authMW := middleware.NewAuthMiddleware(cachedStore, cfg.Security.Mode, logger, func(status string) {
 		metrics.AuthTotal.WithLabelValues(status).Inc()
 	})
 
@@ -103,7 +103,7 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	)
 
 	// 5. 로그 미들웨어.
-	logMW := storage.NewLogMiddleware(db, logger, telCol)
+	logMW := middleware.NewLogMiddleware(db, logger, telCol)
 	defer logMW.Close()
 
 	chain := middleware.NewChain(authMW, logMW)

@@ -2,11 +2,13 @@
 
 ## Git Workflow Rules
 
+### English Only!
+
 ### Commit Convention
 - Format: `type(scope): description`
 - Types: feat, fix, docs, refactor, test, chore, style, perf
 - Scope: 모듈 또는 컴포넌트 이름 (선택)
-- Description: 명령형, 최대 72자, 한국어 OK
+- Description: 명령형, 최대 72자, English Only.
 - 예시: `feat(auth): 로그인 JWT 토큰 인증 구현`
 
 ### Branch Naming
