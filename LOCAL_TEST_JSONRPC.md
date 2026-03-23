@@ -66,6 +66,9 @@ python3 /tmp/my_server.py
 ### 1-2. mcp-shield proxy 실행
 
 ```bash
+# simple example (streamable-http)
+/tmp/mcp-shield proxy --upstream http://localhost:8000
+
 # SSE transport
 /tmp/mcp-shield proxy \
   --config /tmp/mcp-shield-local.yaml \
@@ -83,6 +86,7 @@ python3 /tmp/my_server.py
 
 ### 1-3. Claude Desktop 설정
 
+-> TODO: 이거는 클로드데스크톱 앱에서 커넥터 연결하려면 https:// 여야해서 ngrok 써서 커넥터 등록하는 방법으로 해라.
 ```json
 {
   "mcpServers": {
@@ -266,6 +270,7 @@ level=WARN  msg="unsigned request" method=tools/list
 ```
 
 **stdio Wrapping:**
+TODO: 이거는 child process started 까지 정상 뜬 다음에 밑에 그냥 fastmcp 접속 로그만 뜨고 shield-mcp 로그는 안뜨던데?
 ```
 level=INFO  msg="child process started" command=python3 pid=12345
 level=WARN  msg="unsigned request" method=tools/list
