@@ -248,41 +248,87 @@ mcp-shield logs [flags]
 
 ---
 
-## 추후 구현 예정
+## 12. A2A 미들웨어 (`internal/middleware/a2a/`)
 
-### A. Agent-to-Agent (A2A) 통신 인터셉트
+에이전트 간(A2A) HTTP 통신에 대한 인증 및 로깅 미들웨어.
 
-에이전트가 다른 에이전트를 직접 호출하는 통신을 잡아내고 검증한다.
+### 미들웨어 인터페이스
 
-**범위**: Google A2A Protocol, 커스텀 HTTP 기반 A2A, 기타 에이전트 간 프로토콜
+```go
+type Middleware interface {
+    WrapHandler(next http.Handler) http.Handler
+}
+```
 
-**접근 방향**:
-- A2A HTTP 프록시 — 에이전트가 `HTTPS_PROXY=mcp-shield-proxy`로 트래픽을 라우팅
-- 프로토콜 감지: Content-Type, 요청 구조로 A2A / JSON-RPC / REST 구분
-- 의도(intent) 검증: 허용된 에이전트 ID 조합, 허용된 action 타입 화이트리스트
-- 기존 `Middleware` 인터페이스 재사용 가능, transport 레이어만 신규 구현 필요
+- `Chain`: 등록된 미들웨어를 순서대로 래핑 (first = outermost)
+- `responseWriter`: 상태 코드 및 바이트 수 캡처
 
-**주요 과제**:
-- 프로토콜이 표준화되지 않아 파서를 여러 개 만들어야 함
-- 에이전트 신원 확인 방법 (A2A spec의 agent card 기반 검증 등)
-- 양방향 신뢰 모델: 호출하는 에이전트와 받는 에이전트 모두 검증
+### A2A AuthMiddleware
+
+Ed25519 서명 기반 에이전트 인증. 헤더: `X-Agent-ID`, `X-A2A-Signature`
+
+- payload = sha256(method + " " + path + "\n" + body) → Ed25519 verify
+- `did:key:` URI 및 KeyStore 조회 지원
+- **open 모드**: 인증 실패 시 경고 로그만, 요청 통과
+- **closed 모드**: 인증 실패 시 HTTP 401 반환
+- `onAuth` 콜백으로 "verified" / "failed" / "unsigned" 이벤트 전파
+
+### A2A LogMiddleware
+
+요청/응답 쌍을 SQLite에 비동기 저장.
+
+- A2A JSON-RPC body에서 method 필드 추출
+- 비동기 write channel (버퍼 512) → 별도 goroutine drain
+- 텔레메트리 Recorder 연동 (선택)
+- 채널 풀이면 drop (경고 로그)
 
 ---
 
-### B. Agent → 일반 HTTP API 호출 인터셉트
+## 13. HTTP API 미들웨어 (`internal/middleware/httpapi/`)
 
-에이전트가 MCP 외부에서 직접 호출하는 HTTP API (GitHub, Slack, OpenAI 등)를 잡아내고 기록한다.
+에이전트가 외부 HTTP API를 호출할 때의 인증 및 로깅 미들웨어.
 
-**범위**: REST API, GraphQL, 임의 HTTP/HTTPS 외부 호출
+### 미들웨어 인터페이스
 
-**접근 방향**:
-- HTTP MITM 프록시 모드 추가 — 에이전트 실행 환경에 `HTTP_PROXY` / `HTTPS_PROXY` 주입
+A2A와 동일한 `Middleware` / `Chain` 패턴.
+
+### HTTP API AuthMiddleware
+
+Ed25519 서명 기반 에이전트 인증. 헤더: `X-Agent-ID`, `X-Agent-Signature`
+
+- payload = sha256(method + " " + path + "\n" + body) → Ed25519 verify
+- `did:key:` URI 및 KeyStore 조회 지원
+- **open / closed 모드** 동일
+- `onAuth` 콜백으로 이벤트 전파
+
+### HTTP API LogMiddleware
+
+요청/응답 쌍을 SQLite에 비동기 저장.
+
+- method 라벨: `"METHOD /path"` 형식 (예: `GET /api/v1/repos`)
+- 비동기 write channel (버퍼 512) → 별도 goroutine drain
+- 텔레메트리 Recorder 연동 (선택)
+
+---
+
+## 추후 구현 예정
+
+### A. A2A 프록시 transport 및 고급 기능
+
+미들웨어 레이어(Auth + Log)는 구현 완료. 아래는 미구현 잔여 항목:
+
+- A2A HTTP 프록시 transport — 에이전트가 `HTTPS_PROXY=mcp-shield-proxy`로 트래픽을 라우팅
+- 프로토콜 감지: Content-Type, 요청 구조로 A2A / JSON-RPC / REST 자동 구분
+- 의도(intent) 검증: 허용된 에이전트 ID 조합, 허용된 action 타입 화이트리스트
+- 양방향 신뢰 모델: 호출하는 에이전트와 받는 에이전트 모두 검증
+- A2A spec의 agent card 기반 신원 검증
+
+### B. HTTP API 프록시 transport 및 고급 기능
+
+미들웨어 레이어(Auth + Log)는 구현 완료. 아래는 미구현 잔여 항목:
+
+- HTTP MITM 프록시 모드 — 에이전트 실행 환경에 `HTTP_PROXY` / `HTTPS_PROXY` 주입
 - TLS 인터셉트를 위한 CA 인증서 생성 및 신뢰 등록
-- 요청 메타데이터 기록: URL, 메서드, 상태코드, 레이턴시, 페이로드 크기
-- 도메인/경로 기반 허용/차단 규칙 (기존 미들웨어 체인 확장)
+- 도메인/경로 기반 허용/차단 규칙
 - 민감 헤더(Authorization, Cookie) 마스킹 후 저장
-
-**주요 과제**:
-- HTTPS MITM은 에이전트 환경의 CA 신뢰 설정이 필요
-- JSON-RPC가 아닌 임의 HTTP body → 기존 `Middleware` 인터페이스 확장 필요
 - 에이전트 신원 연결: HTTP 호출이 어떤 에이전트에서 나왔는지 추적

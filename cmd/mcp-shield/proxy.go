@@ -144,6 +144,7 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		srv.Shutdown(shutCtx) //nolint:errcheck
 	}()
 
+	printBanner(cfg.Security.Mode, cfg.Server.MonitorAddr, "proxy("+transportType+")")
 	logger.Info("proxy listening", "addr", listenAddr, "transport", transportType)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("proxy server: %w", err)

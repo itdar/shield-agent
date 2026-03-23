@@ -61,6 +61,7 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 		return errors.New("no child command specified — usage: mcp-shield <command> [args...]")
 	}
 
+	printBanner(cfg.Security.Mode, cfg.Server.MonitorAddr, "stdio")
 	logger.Info("starting mcp-shield",
 		"mode", cfg.Security.Mode,
 		"monitor_addr", cfg.Server.MonitorAddr,

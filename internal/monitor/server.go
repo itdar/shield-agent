@@ -88,6 +88,7 @@ func (s *Server) SetChildPID(pid int) {
 // Start launches the monitoring HTTP server in a background goroutine.
 func (s *Server) Start() {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -112,6 +113,19 @@ func (s *Server) Shutdown(ctx context.Context) {
 	if err := s.srv.Shutdown(ctx); err != nil {
 		s.logger.Warn("monitor server shutdown error", slog.String("error", err.Error()))
 	}
+}
+
+// handleRoot returns a simple index page listing available endpoints.
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"service":   "mcp-shield",
+		"endpoints": []string{"/healthz", "/metrics"},
+	})
 }
 
 // handleHealthz returns a JSON health status.
