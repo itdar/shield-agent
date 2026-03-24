@@ -19,19 +19,21 @@ import (
 // Protocol:
 //   - POST /mcp (or /) → apply middleware to request, forward to upstream /mcp, relay response
 type StreamableProxy struct {
-	upstream string
-	chain    *middleware.Chain
-	logger   *slog.Logger
-	client   *http.Client
+	upstream       string
+	chain          *middleware.Chain
+	logger         *slog.Logger
+	client         *http.Client
+	allowedOrigins []string
 }
 
 // NewStreamableProxy creates a new Streamable HTTP proxy.
-func NewStreamableProxy(upstream string, chain *middleware.Chain, logger *slog.Logger) *StreamableProxy {
+func NewStreamableProxy(upstream string, chain *middleware.Chain, logger *slog.Logger, allowedOrigins []string) *StreamableProxy {
 	return &StreamableProxy{
-		upstream: strings.TrimRight(upstream, "/"),
-		chain:    chain,
-		logger:   logger,
-		client:   &http.Client{Timeout: 60 * time.Second},
+		upstream:       strings.TrimRight(upstream, "/"),
+		chain:          chain,
+		logger:         logger,
+		client:         &http.Client{Timeout: 60 * time.Second},
+		allowedOrigins: allowedOrigins,
 	}
 }
 
@@ -47,9 +49,7 @@ func (p *StreamableProxy) Handler() http.Handler {
 
 func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 	// CORS preflight.
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id")
-	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE")
+	SetCORSHeaders(w, r, p.allowedOrigins)
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return

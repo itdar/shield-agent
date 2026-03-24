@@ -22,6 +22,8 @@ func buildProxyCmd(flags *globalFlags) *cobra.Command {
 		listenAddr    string
 		upstream      string
 		transportType string
+		tlsCert       string
+		tlsKey        string
 	)
 
 	cmd := &cobra.Command{
@@ -41,7 +43,7 @@ Example (cloud MCP Streamable HTTP):
   shield-agent proxy --listen :8888 --upstream https://mcp.example.com --transport streamable-http`,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProxy(cmd.Context(), flags, listenAddr, upstream, transportType)
+			return runProxy(cmd.Context(), flags, listenAddr, upstream, transportType, tlsCert, tlsKey)
 		},
 		SilenceUsage: true,
 	}
@@ -50,13 +52,15 @@ Example (cloud MCP Streamable HTTP):
 	f.StringVar(&listenAddr, "listen", ":8888", "listen address (e.g. :8888 or 127.0.0.1:8888)")
 	f.StringVar(&upstream, "upstream", "", "upstream MCP server base URL (required, e.g. http://localhost:8000)")
 	f.StringVar(&transportType, "transport", "streamable-http", "transport type: sse or streamable-http")
+	f.StringVar(&tlsCert, "tls-cert", "", "path to TLS certificate file (enables HTTPS when set with --tls-key)")
+	f.StringVar(&tlsKey, "tls-key", "", "path to TLS key file (enables HTTPS when set with --tls-cert)")
 	_ = cmd.MarkFlagRequired("upstream")
 
 	return cmd
 }
 
 // runProxy is the main execution logic for proxy mode.
-func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, transportType string) error {
+func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, transportType, tlsCert, tlsKey string) error {
 	cfg, logger, err := initFromFlags(flags)
 	if err != nil {
 		return err
@@ -123,13 +127,22 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	defer telCancel()
 	go telCol.Run(telCtx)
 
+	// Apply CLI TLS overrides on top of config.
+	if tlsCert != "" {
+		cfg.Server.TLSCert = tlsCert
+	}
+	if tlsKey != "" {
+		cfg.Server.TLSKey = tlsKey
+	}
+
 	// 8. Select transport handler.
+	allowedOrigins := cfg.Server.CORSAllowedOrigins
 	var handler http.Handler
 	switch transportType {
 	case "sse":
-		handler = proxy.NewSSEProxy(upstream, chain, logger).Handler()
+		handler = proxy.NewSSEProxy(upstream, chain, logger, allowedOrigins).Handler()
 	case "streamable-http", "streamable_http", "http":
-		handler = proxy.NewStreamableProxy(upstream, chain, logger).Handler()
+		handler = proxy.NewStreamableProxy(upstream, chain, logger, allowedOrigins).Handler()
 	default:
 		return fmt.Errorf("unknown transport %q — use sse or streamable-http", transportType)
 	}
@@ -152,8 +165,17 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 
 	printBanner(cfg.Security.Mode, cfg.Server.MonitorAddr, "proxy("+transportType+")")
 	logger.Info("proxy listening", "addr", listenAddr, "transport", transportType)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		return fmt.Errorf("proxy server: %w", err)
+
+	cert, key := cfg.Server.TLSCert, cfg.Server.TLSKey
+	if cert != "" && key != "" {
+		logger.Info("TLS enabled", "cert", cert)
+		if err := srv.ListenAndServeTLS(cert, key); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("proxy server (TLS): %w", err)
+		}
+	} else {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			return fmt.Errorf("proxy server: %w", err)
+		}
 	}
 	return nil
 }

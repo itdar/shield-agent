@@ -28,7 +28,10 @@ type Config struct {
 
 // ServerConfig holds HTTP monitoring server settings.
 type ServerConfig struct {
-	MonitorAddr string `yaml:"monitor_addr"`
+	MonitorAddr        string   `yaml:"monitor_addr"`
+	TLSCert            string   `yaml:"tls_cert"`
+	TLSKey             string   `yaml:"tls_key"`
+	CORSAllowedOrigins []string `yaml:"cors_allowed_origins"`
 }
 
 // SecurityConfig controls authentication/authorization behavior.
@@ -64,7 +67,8 @@ func boolPtr(b bool) *bool { return &b }
 func Defaults() Config {
 	return Config{
 		Server: ServerConfig{
-			MonitorAddr: "127.0.0.1:9090",
+			MonitorAddr:        "127.0.0.1:9090",
+			CORSAllowedOrigins: []string{"*"},
 		},
 		Security: SecurityConfig{
 			Mode:         "open",
@@ -142,6 +146,12 @@ func loadFile(path string, cfg *Config) error {
 func applyEnv(cfg *Config) {
 	if v := os.Getenv("SHIELD_AGENT_MONITOR_ADDR"); v != "" {
 		cfg.Server.MonitorAddr = v
+	}
+	if v := os.Getenv("SHIELD_AGENT_TLS_CERT"); v != "" {
+		cfg.Server.TLSCert = v
+	}
+	if v := os.Getenv("SHIELD_AGENT_TLS_KEY"); v != "" {
+		cfg.Server.TLSKey = v
 	}
 	if v := os.Getenv("SHIELD_AGENT_SECURITY_MODE"); v != "" {
 		cfg.Security.Mode = v

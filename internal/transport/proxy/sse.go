@@ -23,19 +23,21 @@ import (
 //   - GET  /sse          → connect to upstream SSE and relay events
 //   - POST /messages     → apply middleware to request, then forward to upstream /messages
 type SSEProxy struct {
-	upstream string
-	chain    *middleware.Chain
-	logger   *slog.Logger
-	sessions *sessionStore
+	upstream       string
+	chain          *middleware.Chain
+	logger         *slog.Logger
+	sessions       *sessionStore
+	allowedOrigins []string
 }
 
 // NewSSEProxy creates a new SSE proxy.
-func NewSSEProxy(upstream string, chain *middleware.Chain, logger *slog.Logger) *SSEProxy {
+func NewSSEProxy(upstream string, chain *middleware.Chain, logger *slog.Logger, allowedOrigins []string) *SSEProxy {
 	return &SSEProxy{
-		upstream: strings.TrimRight(upstream, "/"),
-		chain:    chain,
-		logger:   logger,
-		sessions: newSessionStore(),
+		upstream:       strings.TrimRight(upstream, "/"),
+		chain:          chain,
+		logger:         logger,
+		sessions:       newSessionStore(),
+		allowedOrigins: allowedOrigins,
 	}
 }
 
@@ -177,10 +179,10 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// Set SSE headers for the client.
+	SetCORSHeaders(w, r, p.allowedOrigins)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
@@ -205,8 +207,7 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *SSEProxy) handleMessages(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	SetCORSHeaders(w, r, p.allowedOrigins)
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return

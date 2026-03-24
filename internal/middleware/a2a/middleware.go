@@ -2,6 +2,9 @@ package a2a
 
 import "net/http"
 
+// agentIDHeader is the HTTP header carrying the agent identifier.
+const agentIDHeader = "X-Agent-ID"
+
 // Middleware wraps an http.Handler to add behavior to A2A protocol requests.
 type Middleware interface {
 	WrapHandler(next http.Handler) http.Handler

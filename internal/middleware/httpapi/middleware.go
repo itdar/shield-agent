@@ -2,6 +2,9 @@ package httpapi
 
 import "net/http"
 
+// agentIDHeader is the HTTP header carrying the agent identifier.
+const agentIDHeader = "X-Agent-ID"
+
 // Middleware wraps an http.Handler to intercept agent→HTTP API calls.
 type Middleware interface {
 	WrapHandler(next http.Handler) http.Handler
