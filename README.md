@@ -6,8 +6,11 @@ A security middleware proxy for [MCP (Model Context Protocol)](https://modelcont
 
 - **Two operating modes** — stdio process wrapping and HTTP reverse proxy
 - **Ed25519 authentication** — verify agent identity via cryptographic signatures
+- **Guard middleware** — rate limiting, request size enforcement, IP blocklist/allowlist
 - **Audit logging** — persist all request/response pairs to SQLite
 - **Prometheus metrics** — built-in `/metrics` endpoint for monitoring
+- **Dynamic middleware chain** — YAML-configured pipeline, hot-reloadable via SIGHUP
+- **TLS support** — HTTPS proxy with `--tls-cert` / `--tls-key`
 - **Privacy-first telemetry** — optional anonymous usage stats with differential privacy
 - **MCP transport support** — SSE and Streamable HTTP proxy transports
 - **A2A & HTTP API middleware** — reusable auth/logging middleware for agent-to-agent and agent-to-API communication
@@ -45,9 +48,12 @@ shield-agent proxy --listen :8888 --upstream http://localhost:8000
 
 # SSE transport
 shield-agent proxy --listen :8888 --upstream http://localhost:8000 --transport sse
+
+# HTTPS with TLS
+shield-agent proxy --listen :8888 --upstream http://localhost:8000 --tls-cert cert.pem --tls-key key.pem
 ```
 
-The proxy applies the same middleware chain (Auth + Log) to HTTP-based MCP servers.
+The proxy applies the same middleware chain to HTTP-based MCP servers.
 
 ## Operating Modes
 
@@ -74,6 +80,8 @@ shield-agent proxy --listen :8888 --upstream <url> --transport <sse|streamable-h
 | `--listen` | `:8888` | Listen address |
 | `--upstream` | (required) | Upstream MCP server base URL |
 | `--transport` | `streamable-http` | `sse` or `streamable-http` |
+| `--tls-cert` | — | Path to TLS certificate file (enables HTTPS with `--tls-key`) |
+| `--tls-key` | — | Path to TLS key file |
 
 #### SSE Transport
 
@@ -94,7 +102,7 @@ shield-agent proxy --listen :8888 --upstream <url> --transport <sse|streamable-h
 
 ### Pipeline
 
-Both modes use the same middleware chain: **AuthMiddleware -> LogMiddleware**.
+Both modes use a configurable middleware chain. The default order is: **auth → guard → log**.
 
 ```go
 type Middleware interface {
@@ -108,6 +116,36 @@ type Middleware interface {
 - Blocked requests generate an error response to the caller (not forwarded to the server)
 - Blocked responses are dropped (not forwarded to the caller)
 - Non-JSON or unexpected messages are forwarded verbatim
+
+### Dynamic Middleware Chain
+
+The pipeline is configured via the `middlewares` section in YAML. Omitting the section uses the defaults.
+
+```yaml
+middlewares:
+  - name: auth
+    enabled: true
+  - name: guard
+    enabled: true
+    config:
+      rate_limit_per_min: 60
+      max_body_size: 65536
+      ip_blocklist:
+        - "203.0.113.0/24"
+      ip_allowlist:
+        - "10.0.0.0/8"
+  - name: log
+    enabled: true
+```
+
+Individual middlewares can also be toggled via CLI flags without editing YAML:
+
+```bash
+shield-agent proxy --disable-middleware guard --upstream http://localhost:8000
+shield-agent proxy --enable-middleware log --upstream http://localhost:8000
+```
+
+Sending **SIGHUP** to a running proxy reloads the config file, key store, and middleware chain without restarting the process.
 
 ### Authentication (AuthMiddleware)
 
@@ -136,6 +174,19 @@ Ed25519 signature-based agent authentication.
 - `FileKeyStore` — loads Ed25519 public keys from a YAML file (`keys.yaml`)
 - `CachedKeyStore` — wraps any KeyStore with a 5-minute TTL cache
 - Agent IDs are logged as SHA-256 hashes only (never stored in plaintext)
+
+### Guard (GuardMiddleware)
+
+Enforces rate limits, request size limits, and IP-based access control.
+
+| Config key | Default | Description |
+|------------|---------|-------------|
+| `rate_limit_per_min` | `0` (unlimited) | Max requests per minute per JSON-RPC method |
+| `max_body_size` | `0` (unlimited) | Max request body size in bytes |
+| `ip_blocklist` | — | CIDR ranges or IPs to block outright |
+| `ip_allowlist` | — | CIDR ranges or IPs to allow (empty = allow all) |
+
+Rejected requests increment the `shield_agent_rate_limit_rejected_total` Prometheus counter.
 
 ### Logging (LogMiddleware)
 
@@ -189,17 +240,18 @@ Default address: `127.0.0.1:9090`
 | Endpoint | Description |
 |----------|-------------|
 | `/` | JSON index listing available endpoints |
-| `/healthz` | Health check — in stdio mode, verifies child process liveness via kill(0). Returns `healthy` or `degraded` |
+| `/healthz` | Health check — in stdio mode, verifies child process liveness via kill(0); in proxy mode, also probes the upstream server. Returns `healthy` or `degraded` |
 | `/metrics` | Prometheus metrics |
 
 ### Prometheus Metrics
 
 | Metric | Type | Labels |
 |--------|------|--------|
-| `mcp_shield_messages_total` | Counter | `direction`, `method` |
-| `mcp_shield_auth_total` | Counter | `status` |
-| `mcp_shield_message_latency_seconds` | Histogram | `method` |
-| `mcp_shield_child_process_up` | Gauge | — (stdio mode only) |
+| `shield_agent_messages_total` | Counter | `direction`, `method` |
+| `shield_agent_auth_total` | Counter | `status` |
+| `shield_agent_message_latency_seconds` | Histogram | `method` |
+| `shield_agent_child_process_up` | Gauge | — (stdio mode only) |
+| `shield_agent_rate_limit_rejected_total` | Counter | `method` |
 
 ## Telemetry
 
@@ -222,14 +274,17 @@ Copy `shield-agent.example.yaml` to `shield-agent.yaml` to get started.
 
 | Setting | Default | Environment Variable |
 |---------|---------|---------------------|
-| `server.monitor_addr` | `127.0.0.1:9090` | `MCP_SHIELD_MONITOR_ADDR` |
-| `security.mode` | `open` | `MCP_SHIELD_SECURITY_MODE` |
-| `security.key_store_path` | `keys.yaml` | `MCP_SHIELD_KEY_STORE_PATH` |
-| `logging.level` | `info` | `MCP_SHIELD_LOG_LEVEL` |
-| `logging.format` | `json` | `MCP_SHIELD_LOG_FORMAT` |
-| `storage.db_path` | `shield-agent.db` | `MCP_SHIELD_DB_PATH` |
-| `storage.retention_days` | `30` | `MCP_SHIELD_RETENTION_DAYS` |
-| `telemetry.enabled` | `false` | `MCP_SHIELD_TELEMETRY_ENABLED` |
+| `server.monitor_addr` | `127.0.0.1:9090` | `SHIELD_AGENT_MONITOR_ADDR` |
+| `server.tls_cert` | — | `SHIELD_AGENT_TLS_CERT` |
+| `server.tls_key` | — | `SHIELD_AGENT_TLS_KEY` |
+| `server.cors_allowed_origins` | `["*"]` | — |
+| `security.mode` | `open` | `SHIELD_AGENT_SECURITY_MODE` |
+| `security.key_store_path` | `keys.yaml` | `SHIELD_AGENT_KEY_STORE_PATH` |
+| `logging.level` | `info` | `SHIELD_AGENT_LOG_LEVEL` |
+| `logging.format` | `json` | `SHIELD_AGENT_LOG_FORMAT` |
+| `storage.db_path` | `shield-agent.db` | `SHIELD_AGENT_DB_PATH` |
+| `storage.retention_days` | `30` | `SHIELD_AGENT_RETENTION_DAYS` |
+| `telemetry.enabled` | `false` | `SHIELD_AGENT_TELEMETRY_ENABLED` |
 
 ### Global CLI Flags
 
@@ -240,10 +295,12 @@ Copy `shield-agent.example.yaml` to `shield-agent.yaml` to get started.
 | `--verbose` | Alias for `--log-level debug` |
 | `--telemetry` | Enable anonymous telemetry |
 | `--monitor-addr <addr>` | Monitoring HTTP listen address |
+| `--disable-middleware <name>` | Disable a named middleware at startup |
+| `--enable-middleware <name>` | Enable a named middleware at startup |
 
 ## A2A Middleware
 
-Reusable authentication and logging middleware for agent-to-agent (A2A) HTTP communication. Located in `internal/middleware/a2a/`.
+Reusable authentication and logging middleware for agent-to-agent (A2A) HTTP communication. Located in `internal/middleware/a2a/`. Authentication logic is shared with the HTTP API middleware via the `internal/middleware/httpauth` package.
 
 ```go
 type Middleware interface {
@@ -262,7 +319,7 @@ type Middleware interface {
 
 ## HTTP API Middleware
 
-Reusable authentication and logging middleware for agent-to-external-API HTTP calls. Located in `internal/middleware/httpapi/`.
+Reusable authentication and logging middleware for agent-to-external-API HTTP calls. Located in `internal/middleware/httpapi/`. Shares signature verification and key resolution logic with the A2A middleware via the `internal/middleware/httpauth` package.
 
 Same `Middleware` / `Chain` pattern as A2A.
 
@@ -278,7 +335,7 @@ Same `Middleware` / `Chain` pattern as A2A.
 - No request content filtering — only metadata is recorded
 - No dynamic key registration API (manual `keys.yaml` editing required)
 - Telemetry requires a separate ingestion server
-- `mcp_shield_child_process_up` metric not applicable in proxy mode
+- `shield_agent_child_process_up` metric not applicable in proxy mode
 - No WebSocket MCP transport support
 
 ## Roadmap
