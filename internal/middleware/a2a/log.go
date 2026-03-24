@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"time"
 
-	"rua/internal/auth"
-	"rua/internal/storage"
-	"rua/internal/telemetry"
+	"github.com/itdar/shield-agent/internal/auth"
+	"github.com/itdar/shield-agent/internal/storage"
+	"github.com/itdar/shield-agent/internal/telemetry"
 )
 
 // Recorder forwards telemetry events to an external collector.

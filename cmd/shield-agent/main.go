@@ -11,10 +11,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"rua/internal/auth"
-	"rua/internal/config"
-	"rua/internal/logging"
-	"rua/internal/storage"
+	"github.com/itdar/shield-agent/internal/auth"
+	"github.com/itdar/shield-agent/internal/config"
+	"github.com/itdar/shield-agent/internal/logging"
+	"github.com/itdar/shield-agent/internal/storage"
 )
 
 // globalFlags holds values bound to persistent (global) flags.

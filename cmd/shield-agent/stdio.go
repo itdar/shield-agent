@@ -9,12 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"rua/internal/auth"
-	"rua/internal/middleware"
-	"rua/internal/monitor"
-	"rua/internal/process"
-	"rua/internal/storage"
-	"rua/internal/telemetry"
+	"github.com/itdar/shield-agent/internal/auth"
+	"github.com/itdar/shield-agent/internal/middleware"
+	"github.com/itdar/shield-agent/internal/monitor"
+	"github.com/itdar/shield-agent/internal/process"
+	"github.com/itdar/shield-agent/internal/storage"
+	"github.com/itdar/shield-agent/internal/telemetry"
 )
 
 // buildRootCmd constructs the root cobra command (stdio mode).

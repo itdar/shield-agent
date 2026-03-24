@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"rua/internal/jsonrpc"
-	"rua/internal/middleware"
+	"github.com/itdar/shield-agent/internal/jsonrpc"
+	"github.com/itdar/shield-agent/internal/middleware"
 )
 
 // applyRequest parses body를 JSON-RPC 요청으로 파싱해 middleware chain을 통과시킨다.

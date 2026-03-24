@@ -4,7 +4,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"rua/internal/config"
+	"github.com/itdar/shield-agent/internal/config"
 )
 
 // TestInitLoggerJSONHandler verifies that InitLogger creates a logger with

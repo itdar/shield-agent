@@ -11,8 +11,8 @@ import (
 	"log/slog"
 	"strings"
 
-	"rua/internal/auth"
-	"rua/internal/jsonrpc"
+	"github.com/itdar/shield-agent/internal/auth"
+	"github.com/itdar/shield-agent/internal/jsonrpc"
 )
 
 // AuthMiddleware verifies Ed25519 signatures on incoming JSON-RPC requests.

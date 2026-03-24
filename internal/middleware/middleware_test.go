@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"rua/internal/jsonrpc"
+	"github.com/itdar/shield-agent/internal/jsonrpc"
 )
 
 func TestNewChainPassthrough(t *testing.T) {

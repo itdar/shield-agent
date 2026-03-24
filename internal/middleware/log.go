@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"rua/internal/jsonrpc"
-	"rua/internal/storage"
-	"rua/internal/telemetry"
+	"github.com/itdar/shield-agent/internal/jsonrpc"
+	"github.com/itdar/shield-agent/internal/storage"
+	"github.com/itdar/shield-agent/internal/telemetry"
 )
 
 // Recorder forwards telemetry events to an external collector.

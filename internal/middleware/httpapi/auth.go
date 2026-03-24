@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"rua/internal/auth"
+	"github.com/itdar/shield-agent/internal/auth"
 )
 
 // agentIDHeader is the HTTP header carrying the agent identifier.

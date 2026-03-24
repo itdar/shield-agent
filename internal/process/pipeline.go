@@ -6,8 +6,8 @@ import (
 	"io"
 	"log/slog"
 
-	"rua/internal/jsonrpc"
-	"rua/internal/middleware"
+	"github.com/itdar/shield-agent/internal/jsonrpc"
+	"github.com/itdar/shield-agent/internal/middleware"
 )
 
 // PipelineIn processes the parent→child direction (stdin).

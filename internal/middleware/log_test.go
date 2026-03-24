@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"rua/internal/jsonrpc"
-	"rua/internal/storage"
-	"rua/internal/telemetry"
+	"github.com/itdar/shield-agent/internal/jsonrpc"
+	"github.com/itdar/shield-agent/internal/storage"
+	"github.com/itdar/shield-agent/internal/telemetry"
 )
 
 // mockRecorder captures telemetry events for assertions.

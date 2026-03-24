@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"rua/internal/config"
+	"github.com/itdar/shield-agent/internal/config"
 )
 
 // InitLogger creates and returns a *slog.Logger configured from cfg.

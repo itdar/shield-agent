@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"rua/internal/middleware"
+	"github.com/itdar/shield-agent/internal/middleware"
 )
 
 // SSEProxy는 SSE transport를 사용하는 MCP 클라이언트(Claude Desktop 등)와

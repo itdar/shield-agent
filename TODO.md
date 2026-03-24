@@ -401,7 +401,7 @@ Phase 2 (배포/설치)          ★★★★☆  — 사용자 유입의 관문
   ├── GoReleaser + CI/CD
   └── 문서 (EN + KO)
 
-Phase 3 (토큰 & UI)         ★★★☆☆  — 관리 편의성
+Phase 3 (토큰 & UI)         ★★★☆☆  — 관리 편의성 (여기까지 필수)
   ├── 토큰 발급/관리/quota
   └── Web UI (dashboard, logs, control)
 

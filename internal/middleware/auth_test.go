@@ -11,8 +11,8 @@ import (
 	"os"
 	"testing"
 
-	"rua/internal/auth"
-	"rua/internal/jsonrpc"
+	"github.com/itdar/shield-agent/internal/auth"
+	"github.com/itdar/shield-agent/internal/jsonrpc"
 )
 
 func discardLogger() *slog.Logger {

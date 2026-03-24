@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"rua/internal/middleware"
+	"github.com/itdar/shield-agent/internal/middleware"
 )
 
 // StreamableProxy는 Streamable HTTP transport를 사용하는 MCP 클라이언트와

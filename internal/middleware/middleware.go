@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"rua/internal/jsonrpc"
+	"github.com/itdar/shield-agent/internal/jsonrpc"
 )
 
 // Middleware processes JSON-RPC requests and responses in a pipeline.

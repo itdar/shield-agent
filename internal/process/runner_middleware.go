@@ -10,8 +10,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"rua/internal/middleware"
-	"rua/internal/monitor"
+	"github.com/itdar/shield-agent/internal/middleware"
+	"github.com/itdar/shield-agent/internal/monitor"
 )
 
 // RunWithMiddleware launches the child process described by args and wires up
