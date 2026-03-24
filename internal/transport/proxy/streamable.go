@@ -13,11 +13,11 @@ import (
 	"github.com/itdar/shield-agent/internal/middleware"
 )
 
-// StreamableProxy는 Streamable HTTP transport를 사용하는 MCP 클라이언트와
-// 업스트림 MCP 서버 사이에서 미들웨어를 적용하는 HTTP 프록시다.
+// StreamableProxy is an HTTP proxy that applies middleware between an MCP client
+// using Streamable HTTP transport and an upstream MCP server.
 //
-// 프로토콜:
-//   - POST /mcp (또는 /) → 요청에 미들웨어 적용 후 업스트림 /mcp 포워딩, 응답 relay
+// Protocol:
+//   - POST /mcp (or /) → apply middleware to request, forward to upstream /mcp, relay response
 type StreamableProxy struct {
 	upstream string
 	chain    *middleware.Chain
@@ -36,7 +36,7 @@ func NewStreamableProxy(upstream string, chain *middleware.Chain, logger *slog.L
 }
 
 // Handler returns the http.Handler for this proxy.
-// POST /mcp 와 POST / 둘 다 처리한다.
+// Handles both POST /mcp and POST /.
 func (p *StreamableProxy) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", p.handleMCP)
@@ -55,20 +55,20 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Streamable HTTP는 GET(SSE 스트림 열기), POST(메시지 전송), DELETE(세션 종료) 지원.
-	// POST가 핵심.
+	// Streamable HTTP supports GET (open SSE stream), POST (send message), DELETE (close session).
+	// POST is the primary method.
 	if r.Method != http.MethodPost && r.Method != http.MethodGet && r.Method != http.MethodDelete {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// GET/DELETE는 세션 관리용 — 미들웨어 없이 그대로 프록시.
+	// GET/DELETE are for session management — proxy directly without middleware.
 	if r.Method == http.MethodGet || r.Method == http.MethodDelete {
 		p.proxyRaw(w, r)
 		return
 	}
 
-	// POST: 미들웨어 적용.
+	// POST: apply middleware.
 	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
 	if err != nil {
 		http.Error(w, "request read error", http.StatusBadRequest)
@@ -80,7 +80,7 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 		slog.Int("bytes", len(body)),
 	)
 
-	// 미들웨어 체인 적용 (인증 + 로깅).
+	// Apply middleware chain (auth + logging).
 	body, chainErr := applyRequest(r.Context(), body, p.chain, p.logger)
 	if chainErr != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -89,8 +89,8 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 업스트림 URL 결정.
-	// 요청 경로 기준으로 upstream URL 구성.
+	// Determine upstream URL.
+	// Build upstream URL based on the request path.
 	reqPath := r.URL.Path
 	if reqPath == "/" || reqPath == "" {
 		reqPath = "/mcp"
@@ -107,7 +107,7 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 원본 헤더 중 필요한 것 복사.
+	// Copy relevant headers from the original request.
 	upReq.Header.Set("Content-Type", "application/json")
 	if accept := r.Header.Get("Accept"); accept != "" {
 		upReq.Header.Set("Accept", accept)
@@ -127,7 +127,7 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer upResp.Body.Close()
 
-	// 업스트림 응답 헤더 relay.
+	// Relay upstream response headers.
 	for k, vs := range upResp.Header {
 		for _, v := range vs {
 			w.Header().Add(k, v)
@@ -135,14 +135,14 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(upResp.StatusCode)
 
-	// 응답이 SSE 스트림인 경우 청크 단위로 relay + 미들웨어 적용.
+	// If the response is an SSE stream, relay chunk by chunk and apply middleware.
 	ct := upResp.Header.Get("Content-Type")
 	if strings.Contains(ct, "text/event-stream") {
 		p.relaySSEResponse(w, upResp.Body)
 		return
 	}
 
-	// 단순 JSON 응답: 전체 읽어서 ProcessResponse 적용 후 반환.
+	// Plain JSON response: read fully, apply ProcessResponse, then return.
 	respBody, err := io.ReadAll(upResp.Body)
 	if err != nil {
 		return
@@ -150,12 +150,12 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	out := applyResponse(r.Context(), respBody, p.chain, p.logger)
 	if out == nil {
-		out = respBody // 차단된 경우 원본 유지 (streamable에서는 드롭보다 통과가 안전)
+		out = respBody // if blocked, keep original (passing through is safer than dropping in streamable)
 	}
 	w.Write(out) //nolint:errcheck
 }
 
-// proxyRaw는 GET/DELETE 같은 메서드를 미들웨어 없이 그대로 업스트림에 포워딩한다.
+// proxyRaw forwards methods like GET/DELETE directly to upstream without middleware.
 func (p *StreamableProxy) proxyRaw(w http.ResponseWriter, r *http.Request) {
 	reqPath := r.URL.Path
 	if reqPath == "/" || reqPath == "" {
@@ -171,7 +171,7 @@ func (p *StreamableProxy) proxyRaw(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "upstream error", http.StatusBadGateway)
 		return
 	}
-	// 헤더 복사.
+	// Copy headers.
 	for k, vs := range r.Header {
 		for _, v := range vs {
 			upReq.Header.Add(k, v)
@@ -200,8 +200,8 @@ func (p *StreamableProxy) proxyRaw(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, upResp.Body) //nolint:errcheck
 }
 
-// relaySSEResponse는 업스트림 SSE 스트림을 클라이언트에 실시간으로 relay한다.
-// 각 이벤트의 data 필드에 미들웨어(ProcessResponse)를 적용한다.
+// relaySSEResponse relays the upstream SSE stream to the client in real time.
+// Applies middleware (ProcessResponse) to the data field of each event.
 func (p *StreamableProxy) relaySSEResponse(w http.ResponseWriter, body io.Reader) {
 	flusher, canFlush := w.(http.Flusher)
 	scanner := bufio.NewScanner(body)
@@ -220,10 +220,10 @@ func (p *StreamableProxy) relaySSEResponse(w http.ResponseWriter, body io.Reader
 				sb.WriteString("\n")
 			}
 			if ev.data != "" {
-				// ProcessResponse 적용.
+				// Apply ProcessResponse.
 				data := applyResponse(context.Background(), []byte(ev.data), p.chain, p.logger)
 				if data == nil {
-					data = []byte(ev.data) // 차단 시 원본 유지
+					data = []byte(ev.data) // if blocked, keep original
 				}
 				sb.WriteString("data: ")
 				sb.Write(data)
@@ -236,7 +236,7 @@ func (p *StreamableProxy) relaySSEResponse(w http.ResponseWriter, body io.Reader
 				flusher.Flush()
 			}
 		} else {
-			// 이벤트 라인이 아닌 것 (id:, retry: 등)은 그대로 통과.
+			// Non-event lines (id:, retry:, etc.) pass through as-is.
 			if !strings.HasPrefix(line, "event: ") && !strings.HasPrefix(line, "data: ") {
 				w.Write([]byte(line + "\n")) //nolint:errcheck
 			} else {

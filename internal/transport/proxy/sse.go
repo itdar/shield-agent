@@ -16,12 +16,12 @@ import (
 	"github.com/itdar/shield-agent/internal/middleware"
 )
 
-// SSEProxy는 SSE transport를 사용하는 MCP 클라이언트(Claude Desktop 등)와
-// 업스트림 MCP 서버 사이에서 미들웨어를 적용하는 HTTP 프록시다.
+// SSEProxy is an HTTP proxy that applies middleware between an MCP client
+// (e.g. Claude Desktop) using SSE transport and an upstream MCP server.
 //
-// 프로토콜:
-//   - GET  /sse          → 업스트림 SSE 연결 후 이벤트 relay
-//   - POST /messages     → 요청에 미들웨어 적용 후 업스트림 /messages 포워딩
+// Protocol:
+//   - GET  /sse          → connect to upstream SSE and relay events
+//   - POST /messages     → apply middleware to request, then forward to upstream /messages
 type SSEProxy struct {
 	upstream string
 	chain    *middleware.Chain
@@ -62,7 +62,7 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// 업스트림 SSE 연결.
+	// Connect to upstream SSE.
 	upSSEURL := p.upstream + "/sse"
 	upReq, err := http.NewRequestWithContext(ctx, http.MethodGet, upSSEURL, nil)
 	if err != nil {
@@ -73,7 +73,7 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 	upReq.Header.Set("Accept", "text/event-stream")
 	upReq.Header.Set("Cache-Control", "no-cache")
 
-	// SSE는 timeout 없이 long-lived connection.
+	// SSE is a long-lived connection — no timeout.
 	upClient := &http.Client{Timeout: 0}
 	upResp, err := upClient.Do(upReq)
 	if err != nil {
@@ -86,7 +86,7 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 	defer upResp.Body.Close()
 
-	// 로컬 세션 생성.
+	// Create local session.
 	localID := uuid.New().String()
 	sess := &session{
 		events: make(chan []byte, 512),
@@ -96,11 +96,11 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 
 	p.logger.Info("sse: session started", slog.String("session_id", localID))
 
-	// done 채널로 goroutine 종료 신호 전달.
+	// done channel signals goroutine termination.
 	done := make(chan struct{})
 	defer close(done)
 
-	// 업스트림 SSE 읽기 goroutine.
+	// Goroutine that reads from upstream SSE.
 	go func() {
 		defer close(sess.events)
 
@@ -119,20 +119,20 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 		for scanner.Scan() {
 			line := scanner.Text()
 			if line == "" {
-				// SSE 이벤트 블록 완성.
+				// SSE event block complete.
 				ev := parseSSEEvent(lines)
 				lines = lines[:0]
 
 				switch ev.typ {
 				case "endpoint":
-					// 업스트림 메시지 URL 저장 (절대 URL로 변환).
+					// Store upstream message URL (convert to absolute URL).
 					upMsgURL := ev.data
 					if strings.HasPrefix(upMsgURL, "/") {
 						upMsgURL = p.upstream + upMsgURL
 					}
 					sess.setUpstreamMsgURL(upMsgURL)
 
-					// 클라이언트에게는 우리 로컬 엔드포인트를 알려준다.
+					// Tell the client our local endpoint instead.
 					localPath := fmt.Sprintf("/messages?sessionId=%s", localID)
 					event := fmt.Sprintf("event: endpoint\ndata: %s\n\n", localPath)
 					p.logger.Debug("sse: endpoint established",
@@ -147,10 +147,10 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 					if ev.data == "" {
 						continue
 					}
-					// 응답 데이터에 미들웨어 적용 (LogMiddleware가 레이턴시 기록).
+					// Apply middleware to response data (LogMiddleware records latency).
 					data := applyResponse(ctx, []byte(ev.data), p.chain, p.logger)
 					if data == nil {
-						continue // 미들웨어가 차단
+						continue // middleware blocked
 					}
 
 					var sb strings.Builder
@@ -176,7 +176,7 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// 클라이언트에 SSE 헤더 설정.
+	// Set SSE headers for the client.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -184,7 +184,7 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	// 세션 채널에서 이벤트를 꺼내 클라이언트로 relay.
+	// Pull events from the session channel and relay to the client.
 	for {
 		select {
 		case event, ok := <-sess.events:
@@ -246,7 +246,7 @@ func (p *SSEProxy) handleMessages(w http.ResponseWriter, r *http.Request) {
 		slog.Int("bytes", len(body)),
 	)
 
-	// 미들웨어 체인 적용 (인증 + 로깅).
+	// Apply middleware chain (auth + logging).
 	body, chainErr := applyRequest(r.Context(), body, p.chain, p.logger)
 	if chainErr != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -255,7 +255,7 @@ func (p *SSEProxy) handleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 업스트림으로 포워딩.
+	// Forward to upstream.
 	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upMsgURL, bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, "upstream request error", http.StatusBadGateway)
@@ -272,7 +272,7 @@ func (p *SSEProxy) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	defer upResp.Body.Close()
 
-	// 업스트림 응답 코드 그대로 반환 (보통 202 Accepted).
+	// Return upstream response status code as-is (typically 202 Accepted).
 	w.WriteHeader(upResp.StatusCode)
 }
 

@@ -4,11 +4,11 @@ import (
 	"sync"
 )
 
-// session은 SSE 프록시의 클라이언트-업스트림 간 세션을 나타낸다.
+// session represents a client-upstream session in the SSE proxy.
 type session struct {
 	mu             sync.RWMutex
-	upstreamMsgURL string     // 업스트림 /messages 엔드포인트 절대 URL
-	events         chan []byte // 클라이언트로 relay할 SSE 이벤트 바이트
+	upstreamMsgURL string     // absolute URL of the upstream /messages endpoint
+	events         chan []byte // SSE event bytes to relay to the client
 }
 
 func (s *session) setUpstreamMsgURL(u string) {
@@ -23,7 +23,7 @@ func (s *session) getUpstreamMsgURL() string {
 	return s.upstreamMsgURL
 }
 
-// sessionStore는 localSessionID → *session 매핑을 스레드 안전하게 관리한다.
+// sessionStore manages a thread-safe localSessionID → *session mapping.
 type sessionStore struct {
 	mu       sync.RWMutex
 	sessions map[string]*session

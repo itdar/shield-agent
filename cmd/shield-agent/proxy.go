@@ -16,7 +16,7 @@ import (
 	"github.com/itdar/shield-agent/internal/transport/proxy"
 )
 
-// buildProxyCmd는 `shield-agent proxy` 서브커맨드를 생성한다.
+// buildProxyCmd builds the `shield-agent proxy` sub-command.
 func buildProxyCmd(flags *globalFlags) *cobra.Command {
 	var (
 		listenAddr    string
@@ -26,18 +26,18 @@ func buildProxyCmd(flags *globalFlags) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "proxy",
-		Short: "HTTP 프록시 모드: MCP 클라이언트와 업스트림 MCP 서버 사이에 위치",
-		Long: `Claude Desktop 같은 MCP 클라이언트와 업스트림 MCP 서버(fastmcp 등) 사이에
-HTTP 프록시 서버를 실행한다. 인증(AuthMiddleware)과 로깅(LogMiddleware)이 중간에 적용된다.
+		Short: "HTTP proxy mode: sits between an MCP client and an upstream MCP server",
+		Long: `Runs an HTTP proxy server between an MCP client (e.g. Claude Desktop) and an
+upstream MCP server (e.g. fastmcp). AuthMiddleware and LogMiddleware are applied in the middle.
 
-지원 transport:
+Supported transports:
   sse             — Server-Sent Events (GET /sse + POST /messages)
   streamable-http — Streamable HTTP (POST /mcp)
 
-예시 (로컬 fastmcp SSE):
+Example (local fastmcp SSE):
   shield-agent proxy --listen :8888 --upstream http://localhost:8000 --transport sse
 
-예시 (클라우드 MCP Streamable HTTP):
+Example (cloud MCP Streamable HTTP):
   shield-agent proxy --listen :8888 --upstream https://mcp.example.com --transport streamable-http`,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -47,15 +47,15 @@ HTTP 프록시 서버를 실행한다. 인증(AuthMiddleware)과 로깅(LogMiddl
 	}
 
 	f := cmd.Flags()
-	f.StringVar(&listenAddr, "listen", ":8888", "리슨 주소 (예: :8888 또는 127.0.0.1:8888)")
-	f.StringVar(&upstream, "upstream", "", "업스트림 MCP 서버 base URL (필수, 예: http://localhost:8000)")
-	f.StringVar(&transportType, "transport", "streamable-http", "transport 종류: sse 또는 streamable-http")
+	f.StringVar(&listenAddr, "listen", ":8888", "listen address (e.g. :8888 or 127.0.0.1:8888)")
+	f.StringVar(&upstream, "upstream", "", "upstream MCP server base URL (required, e.g. http://localhost:8000)")
+	f.StringVar(&transportType, "transport", "streamable-http", "transport type: sse or streamable-http")
 	_ = cmd.MarkFlagRequired("upstream")
 
 	return cmd
 }
 
-// runProxy는 proxy 모드의 메인 실행 로직이다.
+// runProxy is the main execution logic for proxy mode.
 func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, transportType string) error {
 	cfg, logger, err := initFromFlags(flags)
 	if err != nil {
@@ -68,7 +68,7 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		"upstream", upstream,
 	)
 
-	// 1. DB 초기화.
+	// 1. Initialize database.
 	db, err := storage.Open(cfg.Storage.DBPath)
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
@@ -79,7 +79,7 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		logger.Info("purged old log entries", "count", n)
 	}
 
-	// 2. Prometheus 메트릭.
+	// 2. Prometheus metrics.
 	metrics := monitor.NewMetrics(monitor.DefaultRegisterer())
 
 	// 3. Auth KeyStore.
@@ -92,7 +92,7 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		metrics.AuthTotal.WithLabelValues(status).Inc()
 	})
 
-	// 4. 텔레메트리.
+	// 4. Telemetry.
 	telCol := telemetry.New(
 		cfg.Telemetry.Enabled,
 		cfg.Telemetry.Endpoint,
@@ -102,22 +102,22 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		logger,
 	)
 
-	// 5. 로그 미들웨어.
+	// 5. Log middleware.
 	logMW := middleware.NewLogMiddleware(db, logger, telCol)
 	defer logMW.Close()
 
 	chain := middleware.NewChain(authMW, logMW)
 
-	// 6. 모니터링 서버 시작.
+	// 6. Start monitoring server.
 	monSrv := monitor.New(cfg.Server.MonitorAddr, metrics, logger)
 	monSrv.Start()
 
-	// 7. 텔레메트리 백그라운드 실행.
+	// 7. Run telemetry in background.
 	telCtx, telCancel := context.WithCancel(ctx)
 	defer telCancel()
 	go telCol.Run(telCtx)
 
-	// 8. transport 핸들러 선택.
+	// 8. Select transport handler.
 	var handler http.Handler
 	switch transportType {
 	case "sse":
@@ -131,11 +131,11 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	srv := &http.Server{
 		Addr:         listenAddr,
 		Handler:      handler,
-		ReadTimeout:  0, // SSE는 timeout 없음
+		ReadTimeout:  0, // SSE has no timeout (long-lived connection)
 		WriteTimeout: 0,
 	}
 
-	// 9. context 취소 시 graceful shutdown.
+	// 9. Graceful shutdown on context cancellation.
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

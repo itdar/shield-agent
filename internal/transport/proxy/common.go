@@ -9,9 +9,9 @@ import (
 	"github.com/itdar/shield-agent/internal/middleware"
 )
 
-// applyRequest parses body를 JSON-RPC 요청으로 파싱해 middleware chain을 통과시킨다.
-// 성공 시 (수정된 body, nil), 차단 시 (에러 페이로드, error) 반환.
-// JSON이 아니거나 요청이 아닌 경우 body를 그대로 반환.
+// applyRequest parses body as a JSON-RPC request and passes it through the middleware chain.
+// Returns (modified body, nil) on success, or (error payload, error) if blocked.
+// Returns body unchanged if not valid JSON or not a request.
 func applyRequest(ctx context.Context, body []byte, chain *middleware.Chain, logger *slog.Logger) ([]byte, error) {
 	if chain == nil {
 		return body, nil
@@ -46,8 +46,8 @@ func applyRequest(ctx context.Context, body []byte, chain *middleware.Chain, log
 	return out, nil
 }
 
-// applyResponse parses body를 JSON-RPC 응답으로 파싱해 middleware chain을 통과시킨다.
-// 차단되면 nil 반환. 에러 시 원본 body 반환.
+// applyResponse parses body as a JSON-RPC response and passes it through the middleware chain.
+// Returns nil if blocked. Returns original body on error.
 func applyResponse(ctx context.Context, body []byte, chain *middleware.Chain, logger *slog.Logger) []byte {
 	if chain == nil {
 		return body
