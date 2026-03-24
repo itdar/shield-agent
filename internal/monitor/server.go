@@ -31,23 +31,23 @@ type Metrics struct {
 func NewMetrics(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
 		MessagesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "mcp_shield_messages_total",
+			Name: "shield_agent_messages_total",
 			Help: "Total number of JSON-RPC messages processed.",
 		}, []string{"direction", "method"}),
 
 		AuthTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "mcp_shield_auth_total",
+			Name: "shield_agent_auth_total",
 			Help: "Total number of authentication events.",
 		}, []string{"status"}),
 
 		MessageLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "mcp_shield_message_latency_seconds",
+			Name:    "shield_agent_message_latency_seconds",
 			Help:    "Latency of JSON-RPC message processing.",
 			Buckets: prometheus.DefBuckets,
 		}, []string{"method"}),
 
 		ChildProcessUp: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "mcp_shield_child_process_up",
+			Name: "shield_agent_child_process_up",
 			Help: "1 if the child process is running, 0 otherwise.",
 		}),
 	}

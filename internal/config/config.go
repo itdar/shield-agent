@@ -122,43 +122,43 @@ func loadFile(path string, cfg *Config) error {
 	return nil
 }
 
-// applyEnv overrides cfg fields from MCP_SHIELD_* environment variables.
+// applyEnv overrides cfg fields from SHIELD_AGENT_* environment variables.
 func applyEnv(cfg *Config) {
-	if v := os.Getenv("MCP_SHIELD_MONITOR_ADDR"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_MONITOR_ADDR"); v != "" {
 		cfg.Server.MonitorAddr = v
 	}
-	if v := os.Getenv("MCP_SHIELD_SECURITY_MODE"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_SECURITY_MODE"); v != "" {
 		cfg.Security.Mode = v
 	}
-	if v := os.Getenv("MCP_SHIELD_KEY_STORE_PATH"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_KEY_STORE_PATH"); v != "" {
 		cfg.Security.KeyStorePath = v
 	}
-	if v := os.Getenv("MCP_SHIELD_LOG_LEVEL"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_LOG_LEVEL"); v != "" {
 		cfg.Logging.Level = v
 	}
-	if v := os.Getenv("MCP_SHIELD_LOG_FORMAT"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_LOG_FORMAT"); v != "" {
 		cfg.Logging.Format = v
 	}
-	if v := os.Getenv("MCP_SHIELD_TELEMETRY_ENABLED"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_TELEMETRY_ENABLED"); v != "" {
 		cfg.Telemetry.Enabled = parseBool(v, cfg.Telemetry.Enabled)
 	}
-	if v := os.Getenv("MCP_SHIELD_TELEMETRY_ENDPOINT"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_TELEMETRY_ENDPOINT"); v != "" {
 		cfg.Telemetry.Endpoint = v
 	}
-	if v := os.Getenv("MCP_SHIELD_TELEMETRY_BATCH_INTERVAL"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_TELEMETRY_BATCH_INTERVAL"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Telemetry.BatchInterval = n
 		}
 	}
-	if v := os.Getenv("MCP_SHIELD_TELEMETRY_EPSILON"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_TELEMETRY_EPSILON"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.Telemetry.Epsilon = f
 		}
 	}
-	if v := os.Getenv("MCP_SHIELD_DB_PATH"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_DB_PATH"); v != "" {
 		cfg.Storage.DBPath = v
 	}
-	if v := os.Getenv("MCP_SHIELD_RETENTION_DAYS"); v != "" {
+	if v := os.Getenv("SHIELD_AGENT_RETENTION_DAYS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			cfg.Storage.RetentionDays = n
 		}

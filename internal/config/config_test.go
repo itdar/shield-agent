@@ -39,8 +39,8 @@ func TestLoadMissingFile(t *testing.T) {
 }
 
 func TestEnvVarOverride(t *testing.T) {
-	t.Setenv("MCP_SHIELD_SECURITY_MODE", "closed")
-	t.Setenv("MCP_SHIELD_LOG_LEVEL", "debug")
+	t.Setenv("SHIELD_AGENT_SECURITY_MODE", "closed")
+	t.Setenv("SHIELD_AGENT_LOG_LEVEL", "debug")
 
 	cfg, err := Load("", nil)
 	if err != nil {
@@ -54,13 +54,13 @@ func TestEnvVarOverride(t *testing.T) {
 	}
 
 	// Clean up.
-	os.Unsetenv("MCP_SHIELD_SECURITY_MODE")
-	os.Unsetenv("MCP_SHIELD_LOG_LEVEL")
+	os.Unsetenv("SHIELD_AGENT_SECURITY_MODE")
+	os.Unsetenv("SHIELD_AGENT_LOG_LEVEL")
 }
 
 func TestCLIOverridePriority(t *testing.T) {
-	t.Setenv("MCP_SHIELD_LOG_LEVEL", "warn")
-	defer os.Unsetenv("MCP_SHIELD_LOG_LEVEL")
+	t.Setenv("SHIELD_AGENT_LOG_LEVEL", "warn")
+	defer os.Unsetenv("SHIELD_AGENT_LOG_LEVEL")
 
 	cfg, err := Load("", map[string]string{"log-level": "error"})
 	if err != nil {

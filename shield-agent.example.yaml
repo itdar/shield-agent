@@ -2,9 +2,9 @@
 # Copy this file to shield-agent.yaml and adjust values as needed.
 # All values shown here are the defaults.
 #
-# Environment variable overrides use the MCP_SHIELD_ prefix, e.g.:
-#   MCP_SHIELD_LOG_LEVEL=debug
-#   MCP_SHIELD_SECURITY_MODE=closed
+# Environment variable overrides use the SHIELD_AGENT_ prefix, e.g.:
+#   SHIELD_AGENT_LOG_LEVEL=debug
+#   SHIELD_AGENT_SECURITY_MODE=closed
 
 server:
   # Address for the monitoring HTTP server (/healthz, /metrics).
