@@ -63,6 +63,50 @@ func createMiddleware(entry config.MiddlewareEntry, deps Dependencies) (Middlewa
 			deps.Metrics.AuthTotal.WithLabelValues(status).Inc()
 		})
 		return mw, nil, nil
+	case "guard":
+		cfg := GuardConfig{}
+		if v, ok := entry.Config["rate_limit_per_min"]; ok {
+			switch n := v.(type) {
+			case int:
+				cfg.RateLimitPerMin = n
+			case float64:
+				cfg.RateLimitPerMin = int(n)
+			}
+		}
+		if v, ok := entry.Config["max_body_size"]; ok {
+			switch n := v.(type) {
+			case int:
+				cfg.MaxBodySize = int64(n)
+			case float64:
+				cfg.MaxBodySize = int64(n)
+			case int64:
+				cfg.MaxBodySize = n
+			}
+		}
+		if v, ok := entry.Config["ip_blocklist"]; ok {
+			if list, ok := v.([]any); ok {
+				for _, item := range list {
+					if s, ok := item.(string); ok {
+						cfg.IPBlocklist = append(cfg.IPBlocklist, s)
+					}
+				}
+			}
+		}
+		if v, ok := entry.Config["ip_allowlist"]; ok {
+			if list, ok := v.([]any); ok {
+				for _, item := range list {
+					if s, ok := item.(string); ok {
+						cfg.IPAllowlist = append(cfg.IPAllowlist, s)
+					}
+				}
+			}
+		}
+		mw := NewGuardMiddleware(cfg, deps.Logger, func() {
+			if deps.Metrics != nil {
+				deps.Metrics.RateLimitRejected.WithLabelValues("unknown").Inc()
+			}
+		})
+		return mw, nil, nil
 	case "log":
 		mw := NewLogMiddleware(deps.DB, deps.Logger, deps.TelCol)
 		return mw, func() { mw.Close() }, nil

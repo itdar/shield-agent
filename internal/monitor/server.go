@@ -21,10 +21,11 @@ func DefaultRegisterer() prometheus.Registerer {
 
 // Metrics holds all Prometheus metric collectors.
 type Metrics struct {
-	MessagesTotal  *prometheus.CounterVec
-	AuthTotal      *prometheus.CounterVec
-	MessageLatency *prometheus.HistogramVec
-	ChildProcessUp prometheus.Gauge
+	MessagesTotal      *prometheus.CounterVec
+	AuthTotal          *prometheus.CounterVec
+	MessageLatency     *prometheus.HistogramVec
+	ChildProcessUp     prometheus.Gauge
+	RateLimitRejected  *prometheus.CounterVec
 }
 
 // NewMetrics creates and registers all metrics with the default registerer.
@@ -50,6 +51,11 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "shield_agent_child_process_up",
 			Help: "1 if the child process is running, 0 otherwise.",
 		}),
+
+		RateLimitRejected: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "shield_agent_rate_limit_rejected_total",
+			Help: "Total number of requests rejected by rate limiting.",
+		}, []string{"method"}),
 	}
 
 	reg.MustRegister(
@@ -57,6 +63,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.AuthTotal,
 		m.MessageLatency,
 		m.ChildProcessUp,
+		m.RateLimitRejected,
 	)
 
 	return m

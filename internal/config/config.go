@@ -86,6 +86,7 @@ func Defaults() Config {
 		},
 		Middlewares: []MiddlewareEntry{
 			{Name: "auth", Enabled: boolPtr(true)},
+			{Name: "guard", Enabled: boolPtr(true)},
 			{Name: "log", Enabled: boolPtr(true)},
 		},
 	}

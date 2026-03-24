@@ -48,9 +48,22 @@ storage:
   retention_days: 30
 
 # Middleware pipeline configuration.
-# Middlewares run in the order listed. Omitting this section uses the defaults (auth then log).
+# Middlewares run in the order listed. Omitting this section uses the defaults (auth, guard, then log).
 middlewares:
   - name: auth
     enabled: true
+  - name: guard
+    enabled: true
+    config:
+      # Maximum requests per minute per JSON-RPC method (0 = unlimited).
+      rate_limit_per_min: 0
+      # Maximum request body size in bytes (0 = unlimited).
+      max_body_size: 0
+      # List of CIDR ranges or IPs to block outright.
+      # ip_blocklist:
+      #   - "203.0.113.0/24"
+      # List of CIDR ranges or IPs to allow (empty = allow all).
+      # ip_allowlist:
+      #   - "10.0.0.0/8"
   - name: log
     enabled: true
