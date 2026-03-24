@@ -15,7 +15,7 @@ import (
 // If a request is blocked, a JSON-RPC error response is written to errWriter
 // (the upstream stdout) instead of forwarding to the child.
 // Non-JSON or non-request messages are forwarded verbatim.
-func PipelineIn(src io.Reader, dst io.Writer, errWriter io.Writer, chain *middleware.Chain, logger *slog.Logger, out chan<- []byte) error {
+func PipelineIn(src io.Reader, dst io.Writer, errWriter io.Writer, chain *middleware.SwappableChain, logger *slog.Logger, out chan<- []byte) error {
 	parser := jsonrpc.NewParser(src, jsonrpc.ModeAuto)
 	ctx := context.Background()
 
@@ -72,7 +72,7 @@ func PipelineIn(src io.Reader, dst io.Writer, errWriter io.Writer, chain *middle
 // PipelineOut processes the child→parent direction (stdout).
 // Parsed JSON-RPC responses are passed through the middleware chain.
 // Non-JSON or non-response messages are forwarded verbatim.
-func PipelineOut(src io.Reader, dst io.Writer, chain *middleware.Chain, logger *slog.Logger, out chan<- []byte) error {
+func PipelineOut(src io.Reader, dst io.Writer, chain *middleware.SwappableChain, logger *slog.Logger, out chan<- []byte) error {
 	parser := jsonrpc.NewParser(src, jsonrpc.ModeAuto)
 	ctx := context.Background()
 

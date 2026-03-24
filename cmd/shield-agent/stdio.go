@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -119,6 +122,52 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	}
 	defer closeMiddlewares()
 
+	swappableChain := middleware.NewSwappableChain(chain)
+
+	// 7. SIGHUP handler for config reload.
+	sighupCh := make(chan os.Signal, 1)
+	signal.Notify(sighupCh, syscall.SIGHUP)
+	oldCloser := closeMiddlewares
+	go func() {
+		for range sighupCh {
+			logger.Info("received SIGHUP, reloading configuration")
+			newCfg, newLogger, err := initFromFlags(flags)
+			if err != nil {
+				logger.Error("config reload failed", slog.String("error", err.Error()))
+				continue
+			}
+
+			newFileStore, err := auth.NewFileKeyStore(newCfg.Security.KeyStorePath)
+			if err != nil {
+				logger.Error("key store reload failed", slog.String("error", err.Error()))
+				continue
+			}
+			newCachedStore := auth.NewCachedKeyStore(newFileStore, 5*time.Minute)
+
+			newDeps := middleware.Dependencies{
+				DB:       db,
+				Logger:   newLogger,
+				Metrics:  metrics,
+				KeyStore: newCachedStore,
+				TelCol:   telCol,
+				SecMode:  newCfg.Security.Mode,
+			}
+			newChain, newCloser, err := middleware.BuildChain(newCfg.Middlewares, newDeps)
+			if err != nil {
+				logger.Error("middleware chain rebuild failed", slog.String("error", err.Error()))
+				continue
+			}
+
+			swappableChain.Swap(newChain)
+			if oldCloser != nil {
+				oldCloser()
+			}
+			oldCloser = newCloser
+			logger = newLogger
+			logger.Info("configuration reloaded successfully")
+		}
+	}()
+
 	// 9. Create and start monitor server.
 	monSrv := monitor.New(cfg.Server.MonitorAddr, metrics, logger)
 	monSrv.Start()
@@ -129,7 +178,7 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	go telCol.Run(telCtx)
 
 	// 11. Run child process with middleware.
-	runErr := process.RunWithMiddleware(ctx, childArgs, logger, chain, metrics, monSrv)
+	runErr := process.RunWithMiddleware(ctx, childArgs, logger, swappableChain, metrics, monSrv)
 
 	// 12. Shutdown.
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)

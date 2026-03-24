@@ -108,7 +108,13 @@ func createMiddleware(entry config.MiddlewareEntry, deps Dependencies) (Middlewa
 		})
 		return mw, nil, nil
 	case "log":
-		mw := NewLogMiddleware(deps.DB, deps.Logger, deps.TelCol)
+		onMsg := func(direction, method string, latencyMs float64) {
+			deps.Metrics.MessagesTotal.WithLabelValues(direction, method).Inc()
+			if direction == "out" && latencyMs > 0 {
+				deps.Metrics.MessageLatency.WithLabelValues(method).Observe(latencyMs / 1000.0)
+			}
+		}
+		mw := NewLogMiddleware(deps.DB, deps.Logger, deps.TelCol, onMsg)
 		return mw, func() { mw.Close() }, nil
 	default:
 		return nil, nil, fmt.Errorf("unknown middleware: %q", entry.Name)

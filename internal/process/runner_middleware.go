@@ -18,7 +18,7 @@ import (
 // PipelineIn/PipelineOut interceptors that run the provided middleware chain.
 // If chain is nil it falls back to the plain Interceptor.
 // monSrv and metrics may be nil.
-func RunWithMiddleware(ctx context.Context, args []string, logger *slog.Logger, chain *middleware.Chain, metrics *monitor.Metrics, monSrv *monitor.Server) error {
+func RunWithMiddleware(ctx context.Context, args []string, logger *slog.Logger, chain *middleware.SwappableChain, metrics *monitor.Metrics, monSrv *monitor.Server) error {
 	if len(args) == 0 {
 		return errors.New("no command specified")
 	}

@@ -20,14 +20,14 @@ import (
 //   - POST /mcp (or /) → apply middleware to request, forward to upstream /mcp, relay response
 type StreamableProxy struct {
 	upstream       string
-	chain          *middleware.Chain
+	chain          *middleware.SwappableChain
 	logger         *slog.Logger
 	client         *http.Client
 	allowedOrigins []string
 }
 
 // NewStreamableProxy creates a new Streamable HTTP proxy.
-func NewStreamableProxy(upstream string, chain *middleware.Chain, logger *slog.Logger, allowedOrigins []string) *StreamableProxy {
+func NewStreamableProxy(upstream string, chain *middleware.SwappableChain, logger *slog.Logger, allowedOrigins []string) *StreamableProxy {
 	return &StreamableProxy{
 		upstream:       strings.TrimRight(upstream, "/"),
 		chain:          chain,

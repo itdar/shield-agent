@@ -12,7 +12,7 @@ import (
 // applyRequest parses body as a JSON-RPC request and passes it through the middleware chain.
 // Returns (modified body, nil) on success, or (error payload, error) if blocked.
 // Returns body unchanged if not valid JSON or not a request.
-func applyRequest(ctx context.Context, body []byte, chain *middleware.Chain, logger *slog.Logger) ([]byte, error) {
+func applyRequest(ctx context.Context, body []byte, chain *middleware.SwappableChain, logger *slog.Logger) ([]byte, error) {
 	if chain == nil {
 		return body, nil
 	}
@@ -48,7 +48,7 @@ func applyRequest(ctx context.Context, body []byte, chain *middleware.Chain, log
 
 // applyResponse parses body as a JSON-RPC response and passes it through the middleware chain.
 // Returns nil if blocked. Returns original body on error.
-func applyResponse(ctx context.Context, body []byte, chain *middleware.Chain, logger *slog.Logger) []byte {
+func applyResponse(ctx context.Context, body []byte, chain *middleware.SwappableChain, logger *slog.Logger) []byte {
 	if chain == nil {
 		return body
 	}

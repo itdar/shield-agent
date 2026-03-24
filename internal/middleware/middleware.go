@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"sync"
 
 	"github.com/itdar/shield-agent/internal/jsonrpc"
 )
@@ -55,6 +56,40 @@ func (c *Chain) ProcessResponse(ctx context.Context, resp *jsonrpc.Response) (*j
 		cur = next
 	}
 	return cur, nil
+}
+
+// SwappableChain wraps a Chain and allows atomic replacement for hot-reload.
+type SwappableChain struct {
+	mu    sync.RWMutex
+	chain *Chain
+}
+
+// NewSwappableChain creates a SwappableChain wrapping the provided Chain.
+func NewSwappableChain(chain *Chain) *SwappableChain {
+	return &SwappableChain{chain: chain}
+}
+
+// Swap atomically replaces the underlying Chain.
+func (sc *SwappableChain) Swap(chain *Chain) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.chain = chain
+}
+
+// ProcessRequest delegates to the current Chain's ProcessRequest under a read lock.
+func (sc *SwappableChain) ProcessRequest(ctx context.Context, req *jsonrpc.Request) (*jsonrpc.Request, []byte, error) {
+	sc.mu.RLock()
+	c := sc.chain
+	sc.mu.RUnlock()
+	return c.ProcessRequest(ctx, req)
+}
+
+// ProcessResponse delegates to the current Chain's ProcessResponse under a read lock.
+func (sc *SwappableChain) ProcessResponse(ctx context.Context, resp *jsonrpc.Response) (*jsonrpc.Response, error) {
+	sc.mu.RLock()
+	c := sc.chain
+	sc.mu.RUnlock()
+	return c.ProcessResponse(ctx, resp)
 }
 
 // PassthroughMiddleware is a no-op Middleware useful for embedding.

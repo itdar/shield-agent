@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -118,8 +122,55 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	}
 	defer closeMiddlewares()
 
+	swappableChain := middleware.NewSwappableChain(chain)
+
+	// 5a. SIGHUP handler for config reload.
+	sighupCh := make(chan os.Signal, 1)
+	signal.Notify(sighupCh, syscall.SIGHUP)
+	oldCloser := closeMiddlewares
+	go func() {
+		for range sighupCh {
+			logger.Info("received SIGHUP, reloading configuration")
+			newCfg, newLogger, err := initFromFlags(flags)
+			if err != nil {
+				logger.Error("config reload failed", slog.String("error", err.Error()))
+				continue
+			}
+
+			newFileStore, err := auth.NewFileKeyStore(newCfg.Security.KeyStorePath)
+			if err != nil {
+				logger.Error("key store reload failed", slog.String("error", err.Error()))
+				continue
+			}
+			newCachedStore := auth.NewCachedKeyStore(newFileStore, 5*time.Minute)
+
+			newDeps := middleware.Dependencies{
+				DB:       db,
+				Logger:   newLogger,
+				Metrics:  metrics,
+				KeyStore: newCachedStore,
+				TelCol:   telCol,
+				SecMode:  newCfg.Security.Mode,
+			}
+			newChain, newCloser, err := middleware.BuildChain(newCfg.Middlewares, newDeps)
+			if err != nil {
+				logger.Error("middleware chain rebuild failed", slog.String("error", err.Error()))
+				continue
+			}
+
+			swappableChain.Swap(newChain)
+			if oldCloser != nil {
+				oldCloser()
+			}
+			oldCloser = newCloser
+			logger = newLogger
+			logger.Info("configuration reloaded successfully")
+		}
+	}()
+
 	// 6. Start monitoring server.
 	monSrv := monitor.New(cfg.Server.MonitorAddr, metrics, logger)
+	monSrv.SetUpstreamURL(upstream)
 	monSrv.Start()
 
 	// 7. Run telemetry in background.
@@ -140,9 +191,9 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	var handler http.Handler
 	switch transportType {
 	case "sse":
-		handler = proxy.NewSSEProxy(upstream, chain, logger, allowedOrigins).Handler()
+		handler = proxy.NewSSEProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
 	case "streamable-http", "streamable_http", "http":
-		handler = proxy.NewStreamableProxy(upstream, chain, logger, allowedOrigins).Handler()
+		handler = proxy.NewStreamableProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
 	default:
 		return fmt.Errorf("unknown transport %q — use sse or streamable-http", transportType)
 	}

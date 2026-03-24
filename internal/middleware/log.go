@@ -30,23 +30,26 @@ type pendingRequest struct {
 // LogMiddleware records request/response pairs to the database.
 type LogMiddleware struct {
 	PassthroughMiddleware
-	db       *storage.DB
-	logger   *slog.Logger
-	writeCh  chan storage.ActionLog
-	mu       sync.Mutex
-	pending  map[string]pendingRequest
-	recorder Recorder // may be nil
+	db        *storage.DB
+	logger    *slog.Logger
+	writeCh   chan storage.ActionLog
+	mu        sync.Mutex
+	pending   map[string]pendingRequest
+	recorder  Recorder                                   // may be nil
+	onMessage func(direction, method string, latencyMs float64) // may be nil; Prometheus callback
 }
 
 // NewLogMiddleware creates a LogMiddleware and starts its background writer.
 // recorder may be nil to disable telemetry forwarding.
-func NewLogMiddleware(db *storage.DB, logger *slog.Logger, recorder Recorder) *LogMiddleware {
+// onMessage may be nil to skip Prometheus counter/histogram updates.
+func NewLogMiddleware(db *storage.DB, logger *slog.Logger, recorder Recorder, onMessage func(direction, method string, latencyMs float64)) *LogMiddleware {
 	lm := &LogMiddleware{
-		db:       db,
-		logger:   logger,
-		writeCh:  make(chan storage.ActionLog, 512),
-		pending:  make(map[string]pendingRequest),
-		recorder: recorder,
+		db:        db,
+		logger:    logger,
+		writeCh:   make(chan storage.ActionLog, 512),
+		pending:   make(map[string]pendingRequest),
+		recorder:  recorder,
+		onMessage: onMessage,
 	}
 	go lm.writer()
 	return lm
@@ -87,6 +90,9 @@ func (lm *LogMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Reques
 				PayloadSizeBytes: len(req.Params),
 				AuthStatus:       "unsigned",
 			})
+		}
+		if lm.onMessage != nil {
+			lm.onMessage("in", req.Method, 0)
 		}
 		return req, nil
 	}
@@ -161,6 +167,10 @@ func (lm *LogMiddleware) ProcessResponse(ctx context.Context, resp *jsonrpc.Resp
 			AuthStatus:       effectiveAuthStatus,
 			ErrorCode:        errorCode,
 		})
+	}
+
+	if lm.onMessage != nil {
+		lm.onMessage("out", method, latencyMs)
 	}
 
 	return resp, nil

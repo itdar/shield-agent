@@ -54,7 +54,7 @@ func openTempDB(t *testing.T) *storage.DB {
 func newTestMiddleware(t *testing.T) *LogMiddleware {
 	t.Helper()
 	db := openTempDB(t)
-	lm := NewLogMiddleware(db, slog.Default(), nil)
+	lm := NewLogMiddleware(db, slog.Default(), nil, nil)
 	t.Cleanup(func() { lm.Close() })
 	return lm
 }
@@ -153,7 +153,7 @@ func TestLogMiddlewareResponse(t *testing.T) {
 func TestLogMiddlewareTelemetryNotification(t *testing.T) {
 	db := openTempDB(t)
 	rec := &mockRecorder{}
-	lm := NewLogMiddleware(db, slog.Default(), rec)
+	lm := NewLogMiddleware(db, slog.Default(), rec, nil)
 	t.Cleanup(func() { lm.Close() })
 
 	req := &jsonrpc.Request{
@@ -187,7 +187,7 @@ func TestLogMiddlewareTelemetryNotification(t *testing.T) {
 func TestLogMiddlewareTelemetryResponse(t *testing.T) {
 	db := openTempDB(t)
 	rec := &mockRecorder{}
-	lm := NewLogMiddleware(db, slog.Default(), rec)
+	lm := NewLogMiddleware(db, slog.Default(), rec, nil)
 	t.Cleanup(func() { lm.Close() })
 
 	id := jsonrpc.NumberID(42)
@@ -224,7 +224,7 @@ func TestLogMiddlewareTelemetryResponse(t *testing.T) {
 
 func TestLogMiddlewareTelemetryNilRecorder(t *testing.T) {
 	db := openTempDB(t)
-	lm := NewLogMiddleware(db, slog.Default(), nil)
+	lm := NewLogMiddleware(db, slog.Default(), nil, nil)
 	t.Cleanup(func() { lm.Close() })
 
 	req := &jsonrpc.Request{JSONRPC: jsonrpc.Version, ID: nil, Method: "notifications/x"}
@@ -235,7 +235,7 @@ func TestLogMiddlewareTelemetryNilRecorder(t *testing.T) {
 
 func TestLogMiddlewareClose(t *testing.T) {
 	db := openTempDB(t)
-	lm := NewLogMiddleware(db, slog.Default(), nil)
+	lm := NewLogMiddleware(db, slog.Default(), nil, nil)
 
 	done := make(chan struct{})
 	go func() {

@@ -24,14 +24,14 @@ import (
 //   - POST /messages     → apply middleware to request, then forward to upstream /messages
 type SSEProxy struct {
 	upstream       string
-	chain          *middleware.Chain
+	chain          *middleware.SwappableChain
 	logger         *slog.Logger
 	sessions       *sessionStore
 	allowedOrigins []string
 }
 
 // NewSSEProxy creates a new SSE proxy.
-func NewSSEProxy(upstream string, chain *middleware.Chain, logger *slog.Logger, allowedOrigins []string) *SSEProxy {
+func NewSSEProxy(upstream string, chain *middleware.SwappableChain, logger *slog.Logger, allowedOrigins []string) *SSEProxy {
 	return &SSEProxy{
 		upstream:       strings.TrimRight(upstream, "/"),
 		chain:          chain,

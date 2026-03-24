@@ -6,8 +6,9 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"syscall"
 	"sync/atomic"
+	"syscall"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -71,11 +72,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 
 // Server is the monitoring HTTP server.
 type Server struct {
-	addr     string
-	metrics  *Metrics
-	childPID atomic.Int64
-	logger   *slog.Logger
-	srv      *http.Server
+	addr        string
+	metrics     *Metrics
+	childPID    atomic.Int64
+	upstreamURL atomic.Value // stores string; empty means no upstream check
+	logger      *slog.Logger
+	srv         *http.Server
 }
 
 // New creates a new monitoring Server.
@@ -90,6 +92,12 @@ func New(addr string, metrics *Metrics, logger *slog.Logger) *Server {
 // SetChildPID records the child process PID for health checks.
 func (s *Server) SetChildPID(pid int) {
 	s.childPID.Store(int64(pid))
+}
+
+// SetUpstreamURL sets the upstream URL to probe during health checks (proxy mode).
+// An empty string disables upstream probing.
+func (s *Server) SetUpstreamURL(url string) {
+	s.upstreamURL.Store(url)
 }
 
 // Start launches the monitoring HTTP server in a background goroutine.
@@ -151,6 +159,19 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	status := "healthy"
 	if pid > 0 && !alive {
 		status = "degraded"
+	}
+
+	if upVal := s.upstreamURL.Load(); upVal != nil {
+		if upURL, _ := upVal.(string); upURL != "" {
+			client := &http.Client{Timeout: 2 * time.Second}
+			resp, err := client.Get(upURL)
+			if err != nil || resp.StatusCode >= 500 {
+				status = "degraded"
+			}
+			if resp != nil {
+				resp.Body.Close()
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
