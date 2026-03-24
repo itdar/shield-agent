@@ -9,6 +9,7 @@ import (
 
 // Middleware processes JSON-RPC requests and responses in a pipeline.
 type Middleware interface {
+	Name() string
 	ProcessRequest(ctx context.Context, req *jsonrpc.Request) (*jsonrpc.Request, error)
 	ProcessResponse(ctx context.Context, resp *jsonrpc.Response) (*jsonrpc.Response, error)
 }
@@ -58,6 +59,9 @@ func (c *Chain) ProcessResponse(ctx context.Context, resp *jsonrpc.Response) (*j
 
 // PassthroughMiddleware is a no-op Middleware useful for embedding.
 type PassthroughMiddleware struct{}
+
+// Name returns the name of this middleware.
+func (PassthroughMiddleware) Name() string { return "passthrough" }
 
 // ProcessRequest passes the request through unchanged.
 func (PassthroughMiddleware) ProcessRequest(_ context.Context, req *jsonrpc.Request) (*jsonrpc.Request, error) {

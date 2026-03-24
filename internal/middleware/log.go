@@ -52,6 +52,9 @@ func NewLogMiddleware(db *storage.DB, logger *slog.Logger, recorder Recorder) *L
 	return lm
 }
 
+// Name returns the name of this middleware.
+func (lm *LogMiddleware) Name() string { return "log" }
+
 // SetAuthStatus updates the pending request's auth status and agent hash.
 func (lm *LogMiddleware) SetAuthStatus(reqID, status, agentHash string) {
 	lm.mu.Lock()

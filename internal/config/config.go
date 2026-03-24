@@ -9,13 +9,21 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// MiddlewareEntry describes a single middleware in the pipeline.
+type MiddlewareEntry struct {
+	Name    string         `yaml:"name"`
+	Enabled *bool          `yaml:"enabled"` // pointer so we can detect omission, default true
+	Config  map[string]any `yaml:"config,omitempty"`
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Security  SecurityConfig  `yaml:"security"`
-	Logging   LoggingConfig   `yaml:"logging"`
-	Telemetry TelemetryConfig `yaml:"telemetry"`
-	Storage   StorageConfig   `yaml:"storage"`
+	Server      ServerConfig      `yaml:"server"`
+	Security    SecurityConfig    `yaml:"security"`
+	Logging     LoggingConfig     `yaml:"logging"`
+	Telemetry   TelemetryConfig   `yaml:"telemetry"`
+	Storage     StorageConfig     `yaml:"storage"`
+	Middlewares []MiddlewareEntry `yaml:"middlewares,omitempty"`
 }
 
 // ServerConfig holds HTTP monitoring server settings.
@@ -49,6 +57,9 @@ type StorageConfig struct {
 	RetentionDays int    `yaml:"retention_days"`
 }
 
+// boolPtr returns a pointer to the given bool value.
+func boolPtr(b bool) *bool { return &b }
+
 // Defaults returns a Config populated with all default values.
 func Defaults() Config {
 	return Config{
@@ -72,6 +83,10 @@ func Defaults() Config {
 		Storage: StorageConfig{
 			DBPath:        "shield-agent.db",
 			RetentionDays: 30,
+		},
+		Middlewares: []MiddlewareEntry{
+			{Name: "auth", Enabled: boolPtr(true)},
+			{Name: "log", Enabled: boolPtr(true)},
 		},
 	}
 }
@@ -166,7 +181,7 @@ func applyEnv(cfg *Config) {
 }
 
 // applyCLI merges explicit CLI key/value overrides into cfg.
-// Recognized keys: monitor-addr, log-level, telemetry, verbose (ignored here).
+// Recognized keys: monitor-addr, log-level, telemetry, disable-middleware, enable-middleware.
 func applyCLI(cfg *Config, overrides map[string]string) error {
 	for k, v := range overrides {
 		switch k {
@@ -176,12 +191,28 @@ func applyCLI(cfg *Config, overrides map[string]string) error {
 			cfg.Logging.Level = v
 		case "telemetry":
 			cfg.Telemetry.Enabled = parseBool(v, cfg.Telemetry.Enabled)
+		case "disable-middleware":
+			SetMiddlewareEnabled(cfg, v, false)
+		case "enable-middleware":
+			SetMiddlewareEnabled(cfg, v, true)
 		// "verbose" and "config" are consumed by the CLI layer, not stored here.
 		default:
 			return fmt.Errorf("unknown CLI override key %q", k)
 		}
 	}
 	return nil
+}
+
+// SetMiddlewareEnabled enables or disables a named middleware entry.
+// If no entry with the given name exists, a new one is appended.
+func SetMiddlewareEnabled(cfg *Config, name string, enabled bool) {
+	for i := range cfg.Middlewares {
+		if cfg.Middlewares[i].Name == name {
+			cfg.Middlewares[i].Enabled = boolPtr(enabled)
+			return
+		}
+	}
+	cfg.Middlewares = append(cfg.Middlewares, MiddlewareEntry{Name: name, Enabled: boolPtr(enabled)})
 }
 
 // Validate checks cfg for semantic correctness and returns a descriptive error

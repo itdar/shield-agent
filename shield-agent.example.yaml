@@ -46,3 +46,11 @@ storage:
 
   # Number of days to retain log records before automatic deletion.
   retention_days: 30
+
+# Middleware pipeline configuration.
+# Middlewares run in the order listed. Omitting this section uses the defaults (auth then log).
+middlewares:
+  - name: auth
+    enabled: true
+  - name: log
+    enabled: true

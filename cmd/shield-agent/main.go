@@ -19,11 +19,13 @@ import (
 
 // globalFlags holds values bound to persistent (global) flags.
 type globalFlags struct {
-	configFile  string
-	logLevel    string
-	telemetry   bool
-	verbose     bool
-	monitorAddr string
+	configFile         string
+	logLevel           string
+	telemetry          bool
+	verbose            bool
+	monitorAddr        string
+	disableMiddlewares []string
+	enableMiddlewares  []string
 }
 
 func main() {
@@ -150,10 +152,17 @@ func initFromFlags(flags *globalFlags) (config.Config, *slog.Logger, error) {
 	if flags.telemetry {
 		cliOverrides["telemetry"] = "true"
 	}
-
 	cfg, err := config.Load(flags.configFile, cliOverrides)
 	if err != nil {
 		return config.Config{}, nil, fmt.Errorf("configuration error: %w", err)
+	}
+
+	// Apply middleware enable/disable flags directly (after Load, to support multiple names).
+	for _, name := range flags.disableMiddlewares {
+		config.SetMiddlewareEnabled(&cfg, name, false)
+	}
+	for _, name := range flags.enableMiddlewares {
+		config.SetMiddlewareEnabled(&cfg, name, true)
 	}
 
 	logger := logging.InitLogger(cfg.Logging)

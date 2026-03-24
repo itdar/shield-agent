@@ -36,6 +36,9 @@ func NewAuthMiddleware(store auth.KeyStore, mode string, logger *slog.Logger, on
 	}
 }
 
+// Name returns the name of this middleware.
+func (a *AuthMiddleware) Name() string { return "auth" }
+
 // ProcessRequest verifies the request signature and enforces the auth policy.
 func (a *AuthMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Request) (*jsonrpc.Request, error) {
 	agentID, sigHex := extractAuth(req)

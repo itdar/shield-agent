@@ -88,9 +88,6 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		return fmt.Errorf("loading key store: %w", err)
 	}
 	cachedStore := auth.NewCachedKeyStore(fileStore, 5*time.Minute)
-	authMW := middleware.NewAuthMiddleware(cachedStore, cfg.Security.Mode, logger, func(status string) {
-		metrics.AuthTotal.WithLabelValues(status).Inc()
-	})
 
 	// 4. Telemetry.
 	telCol := telemetry.New(
@@ -102,11 +99,20 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		logger,
 	)
 
-	// 5. Log middleware.
-	logMW := middleware.NewLogMiddleware(db, logger, telCol)
-	defer logMW.Close()
-
-	chain := middleware.NewChain(authMW, logMW)
+	// 5. Build middleware chain from config.
+	deps := middleware.Dependencies{
+		DB:       db,
+		Logger:   logger,
+		Metrics:  metrics,
+		KeyStore: cachedStore,
+		TelCol:   telCol,
+		SecMode:  cfg.Security.Mode,
+	}
+	chain, closeMiddlewares, err := middleware.BuildChain(cfg.Middlewares, deps)
+	if err != nil {
+		return fmt.Errorf("building middleware chain: %w", err)
+	}
+	defer closeMiddlewares()
 
 	// 6. Start monitoring server.
 	monSrv := monitor.New(cfg.Server.MonitorAddr, metrics, logger)

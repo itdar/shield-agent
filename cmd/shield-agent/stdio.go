@@ -45,6 +45,8 @@ Example:
 	pf.BoolVar(&flags.telemetry, "telemetry", false, "enable anonymous telemetry")
 	pf.BoolVar(&flags.verbose, "verbose", false, "verbose output (alias for --log-level debug)")
 	pf.StringVar(&flags.monitorAddr, "monitor-addr", "", "monitoring HTTP listen address (e.g. 127.0.0.1:9090)")
+	pf.StringSliceVar(&flags.disableMiddlewares, "disable-middleware", nil, "disable named middleware(s) (e.g. --disable-middleware auth,log)")
+	pf.StringSliceVar(&flags.enableMiddlewares, "enable-middleware", nil, "enable named middleware(s)")
 
 	return cmd
 }
@@ -92,12 +94,7 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	}
 	cachedStore := auth.NewCachedKeyStore(fileStore, 5*time.Minute)
 
-	// 5. Create AuthMiddleware.
-	authMW := middleware.NewAuthMiddleware(cachedStore, cfg.Security.Mode, logger, func(status string) {
-		metrics.AuthTotal.WithLabelValues(status).Inc()
-	})
-
-	// 6. Create TelemetryCollector.
+	// 5. Create TelemetryCollector.
 	telCol := telemetry.New(
 		cfg.Telemetry.Enabled,
 		cfg.Telemetry.Endpoint,
@@ -107,12 +104,20 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 		logger,
 	)
 
-	// 7. Create LogMiddleware.
-	logMW := middleware.NewLogMiddleware(db, logger, telCol)
-	defer logMW.Close()
-
-	// 8. Build middleware chain (Auth → Log).
-	chain := middleware.NewChain(authMW, logMW)
+	// 6. Build middleware chain from config.
+	deps := middleware.Dependencies{
+		DB:       db,
+		Logger:   logger,
+		Metrics:  metrics,
+		KeyStore: cachedStore,
+		TelCol:   telCol,
+		SecMode:  cfg.Security.Mode,
+	}
+	chain, closeMiddlewares, err := middleware.BuildChain(cfg.Middlewares, deps)
+	if err != nil {
+		return fmt.Errorf("building middleware chain: %w", err)
+	}
+	defer closeMiddlewares()
 
 	// 9. Create and start monitor server.
 	monSrv := monitor.New(cfg.Server.MonitorAddr, metrics, logger)
