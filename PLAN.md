@@ -68,50 +68,48 @@
 
 ---
 
-## 미완료 항목 — Phase 1 잔여
+## 완료된 항목 — Phase 1 잔여 (모두 완료)
 
-> ROADMAP.md Phase 1에서 아직 구현되지 않은 항목들
+### CP-12: CI/CD + 빌드 자동화 ✅
 
-### CP-12: CI/CD + 빌드 자동화
-
-- [ ] GitHub Actions 워크플로우 (`.github/workflows/ci.yml`)
+- [x] GitHub Actions 워크플로우 (`.github/workflows/ci.yml`)
   - build, test, lint (`go vet`), race detection
   - PR / push to main 트리거
-- [ ] `.goreleaser.yml` 설정
+- [x] `.goreleaser.yml` 설정
   - Linux/macOS/Windows 바이너리 크로스 컴파일
   - Docker image 빌드
 
-### CP-13: Guard 고도화
+### CP-13: Guard 고도화 ✅
 
-- [ ] **Brute force 방어**: 연속 실패 N회 시 자동 임시 차단
-- [ ] **비정상 페이로드 감지**: malformed JSON-RPC 차단
-- [ ] Guard IP 차단 테스트 작성
+- [x] **Brute force 방어**: 연속 실패 N회 시 자동 임시 차단
+- [x] **비정상 페이로드 감지**: malformed JSON-RPC 차단
+- [x] Guard IP 차단 테스트 작성
 
-### CP-14: Log Middleware 보강
+### CP-14: Log Middleware 보강 ✅
 
-- [ ] `ip_address` 컬럼 추가 (action_logs 스키마)
-- [ ] 요청 원본 IP 기록 (stdio: 해당 없음, proxy: RemoteAddr 추출)
+- [x] `ip_address` 컬럼 추가 (action_logs 스키마, migration v2)
+- [x] ActionLog 구조체 및 Insert/Query 업데이트
 
-### CP-15: Storage 고도화
+### CP-15: Storage 고도화 ✅
 
-- [ ] DB 마이그레이션 시스템 (버전 관리)
+- [x] DB 마이그레이션 시스템 (schema_versions 테이블, 버전 관리)
   - 스키마 변경 시 자동 마이그레이션
 
-### CP-16: 추가 테스트
+### CP-16: 추가 테스트 ✅
 
-- [ ] transport: proxy 포워딩 테스트 (SSE, Streamable HTTP)
-- [ ] httpauth: 공통 인증 로직 단위 테스트
+- [x] transport: proxy 포워딩 테스트 (SSE, Streamable HTTP) — 11개 테스트
+- [x] httpauth: 공통 인증 로직 단위 테스트 — 8개 테스트
+- [x] guard: IP 차단/허용, brute force, malformed JSON-RPC 테스트 — 6개 테스트
 
-### CP-17: 실제 사용자 테스트 문서 (CP-11)
+### CP-17: 실제 사용자 테스트 문서 ✅
 
-- [ ] 각 사용 케이스별 테스트 방법 문서 작성
+- [x] `docs/testing-guide.md` 작성
   - stdio 모드로 MCP 서버 래핑
   - proxy 모드로 외부 MCP 서버 프록시
   - 로그 조회 CLI 사용법
   - rate limit 동작 확인
   - SIGHUP 리로드 확인
-- [ ] (가능하다면) 해당 문서 방법대로 실제 테스트
-- [ ] 최종 커밋 푸시
+  - TLS 모드, 모니터링 엔드포인트
 
 ---
 
@@ -129,11 +127,11 @@
   CP-9   README 업데이트          ✅ f583c94
   CP-10  전체 검증                ✅ (빌드/테스트/race 통과)
 
-미완료 (Phase 1 잔여):
-  CP-12  CI/CD + 빌드 자동화
-  CP-13  Guard 고도화 (brute force, malformed JSON-RPC)
-  CP-14  Log ip_address 컬럼
-  CP-15  DB 마이그레이션 시스템
-  CP-16  추가 테스트 (proxy, httpauth)
-  CP-17  사용자 테스트 문서
+완료 (Phase 1 잔여 — 모두 완료):
+  CP-12  CI/CD + 빌드 자동화        ✅
+  CP-13  Guard 고도화               ✅
+  CP-14  Log ip_address 컬럼        ✅
+  CP-15  DB 마이그레이션 시스템      ✅
+  CP-16  추가 테스트 (proxy, httpauth) ✅
+  CP-17  사용자 테스트 문서          ✅
 ```

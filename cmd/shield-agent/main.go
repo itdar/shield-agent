@@ -106,15 +106,16 @@ func buildLogsCmd(flags *globalFlags) *cobra.Command {
 				return enc.Encode(logs)
 			default:
 				// Table format.
-				fmt.Fprintf(os.Stdout, "%-24s %-10s %-30s %-5s %-10s %s\n",
-					"TIMESTAMP", "DIRECTION", "METHOD", "OK", "LATENCY_MS", "AUTH")
+				fmt.Fprintf(os.Stdout, "%-24s %-10s %-30s %-5s %-10s %-16s %s\n",
+					"TIMESTAMP", "DIRECTION", "METHOD", "OK", "LATENCY_MS", "IP", "AUTH")
 				for _, l := range logs {
-					fmt.Fprintf(os.Stdout, "%-24s %-10s %-30s %-5v %-10.1f %s\n",
+					fmt.Fprintf(os.Stdout, "%-24s %-10s %-30s %-5v %-10.1f %-16s %s\n",
 						l.Timestamp.Format(time.RFC3339),
 						l.Direction,
 						l.Method,
 						l.Success,
 						l.LatencyMs,
+						l.IPAddress,
 						l.AuthStatus,
 					)
 				}

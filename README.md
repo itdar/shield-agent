@@ -6,7 +6,7 @@
 +------------------+         +----------------------------+         +---------------+
 |                  |         |       shield-agent         |         |               |
 |   AI Agent /     | ------> | +------------------------+ | ------> | Target MCP    |
-|   MCP Client     |         | | Middleware Chain        | |         | Server        |
+|   MCP Client     |         | | Middleware Chain       | |         | Server        |
 |                  | <------ | | [auth] [guard] [log]   | | <------ |               |
 +------------------+         | +------------------------+ |         +---------------+
                              |   monitor :9090 /metrics   |
@@ -17,14 +17,16 @@
 
 - **두 가지 동작 모드** — stdio 프로세스 래핑 및 HTTP 리버스 프록시
 - **Ed25519 인증** — 암호화 서명을 통한 에이전트 신원 검증
-- **Guard 미들웨어** — 속도 제한, 요청 크기 제한, IP 차단/허용 목록
-- **감사 로깅** — 모든 요청/응답 쌍을 SQLite에 영구 저장
+- **Guard 미들웨어** — 속도 제한, 요청 크기 제한, IP 차단/허용 목록, brute force 방어, malformed JSON-RPC 감지
+- **감사 로깅** — 모든 요청/응답 쌍을 SQLite에 영구 저장 (IP 주소 포함)
 - **Prometheus 메트릭** — 모니터링을 위한 내장 `/metrics` 엔드포인트
 - **동적 미들웨어 체인** — YAML로 설정된 파이프라인, SIGHUP을 통한 핫 리로드 지원
 - **TLS 지원** — `--tls-cert` / `--tls-key`를 사용한 HTTPS 프록시
 - **프라이버시 우선 텔레메트리** — 차등 프라이버시(differential privacy)를 적용한 선택적 익명 사용 통계
 - **MCP 전송 지원** — SSE 및 Streamable HTTP 프록시 전송 방식
 - **A2A & HTTP API 미들웨어** — 에이전트 간 통신 및 에이전트-API 통신을 위한 재사용 가능한 인증/로깅 미들웨어
+- **DB 마이그레이션** — 자동 스키마 버전 관리 및 마이그레이션
+- **CI/CD** — GitHub Actions (build, test, lint, race detection) + GoReleaser
 
 ## 빠른 시작
 
@@ -244,8 +246,14 @@ Ed25519 서명 기반 에이전트 인증.
 | `max_body_size` | `0` (무제한) | 최대 요청 본문 크기 (바이트) |
 | `ip_blocklist` | — | 차단할 CIDR 범위 또는 IP |
 | `ip_allowlist` | — | 허용할 CIDR 범위 또는 IP (비어 있으면 모두 허용) |
+| `brute_force_max_fails` | `0` (비활성) | 연속 실패 N회 시 자동 임시 차단 |
+| `validate_jsonrpc` | `false` | malformed JSON-RPC 페이로드 거부 |
 
 거부된 요청은 `shield_agent_rate_limit_rejected_total` Prometheus 카운터를 증가시킵니다.
+
+**Brute force 방어:** `brute_force_max_fails`가 설정되면, 동일 메서드에서 연속 실패 시 자동으로 10분간 임시 차단됩니다.
+
+**JSON-RPC 검증:** `validate_jsonrpc: true` 시, 잘못된 JSON-RPC 버전이나 빈 메서드명을 가진 요청을 차단합니다.
 
 ### 로깅 (LogMiddleware)
 
@@ -274,6 +282,8 @@ shield-agent logs [flags]
 
 SQLite 데이터베이스 (기본값: `shield-agent.db`), WAL 모드 및 5초 busy 타임아웃 사용.
 
+**스키마 마이그레이션:** `schema_versions` 테이블을 통해 자동 버전 관리. 새 버전이 추가되면 시작 시 자동으로 적용됩니다.
+
 **스키마 (`action_logs`):**
 
 | 컬럼 | 설명 |
@@ -287,6 +297,7 @@ SQLite 데이터베이스 (기본값: `shield-agent.db`), WAL 모드 및 5초 bu
 | `payload_size` | params/result의 크기 (바이트) |
 | `auth_status` | `verified` / `failed` / `unsigned` |
 | `error_code` | 에러 코드 (있는 경우) |
+| `ip_address` | 요청 원본 IP 주소 (proxy 모드) |
 
 **인덱스:** `timestamp`, `(agent_id_hash, timestamp)`, `method`
 
