@@ -63,6 +63,46 @@ CREATE INDEX IF NOT EXISTS idx_action_logs_method
 		version: 2,
 		sql:     `ALTER TABLE action_logs ADD COLUMN ip_address TEXT DEFAULT '';`,
 	},
+	{
+		version: 3,
+		sql: `
+CREATE TABLE IF NOT EXISTS tokens (
+	id               TEXT PRIMARY KEY,
+	name             TEXT NOT NULL,
+	token_hash       TEXT NOT NULL UNIQUE,
+	created_at       DATETIME NOT NULL,
+	expires_at       DATETIME,
+	active           BOOLEAN NOT NULL DEFAULT 1,
+	quota_hourly     INTEGER NOT NULL DEFAULT 0,
+	quota_monthly    INTEGER NOT NULL DEFAULT 0,
+	allowed_methods  TEXT DEFAULT '[]',
+	ip_allowlist     TEXT DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_tokens_hash ON tokens (token_hash);
+CREATE INDEX IF NOT EXISTS idx_tokens_active ON tokens (active);`,
+	},
+	{
+		version: 4,
+		sql: `
+CREATE TABLE IF NOT EXISTS token_usage (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	token_id   TEXT NOT NULL,
+	timestamp  DATETIME NOT NULL,
+	method     TEXT,
+	success    BOOLEAN,
+	latency_ms REAL,
+	FOREIGN KEY (token_id) REFERENCES tokens(id)
+);
+CREATE INDEX IF NOT EXISTS idx_token_usage_token_ts ON token_usage (token_id, timestamp);`,
+	},
+	{
+		version: 5,
+		sql: `
+CREATE TABLE IF NOT EXISTS admin_config (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);`,
+	},
 }
 
 // Open opens (or creates) a SQLite database at path, enables WAL mode, and
@@ -129,6 +169,11 @@ func (db *DB) currentVersion() (int, error) {
 // SchemaVersion returns the current schema version (for diagnostics).
 func (db *DB) SchemaVersion() (int, error) {
 	return db.currentVersion()
+}
+
+// Conn returns the underlying *sql.DB connection.
+func (db *DB) Conn() *sql.DB {
+	return db.conn
 }
 
 // Close closes the underlying database connection.
