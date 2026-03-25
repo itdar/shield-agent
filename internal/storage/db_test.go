@@ -201,6 +201,63 @@ func TestQueryFilter_Last(t *testing.T) {
 	}
 }
 
+func TestSchemaVersion(t *testing.T) {
+	db := openTempDB(t)
+
+	v, err := db.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion: %v", err)
+	}
+	if v != 2 {
+		t.Fatalf("expected schema version 2, got %d", v)
+	}
+}
+
+func TestMigrateIdempotent(t *testing.T) {
+	db := openTempDB(t)
+
+	// Running migrate again should be a no-op.
+	if err := db.migrate(); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+
+	v, err := db.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion: %v", err)
+	}
+	if v != 2 {
+		t.Fatalf("expected schema version 2 after re-migrate, got %d", v)
+	}
+}
+
+func TestInsertWithIPAddress(t *testing.T) {
+	db := openTempDB(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	entry := ActionLog{
+		Timestamp:   now,
+		AgentIDHash: "abc",
+		Method:      "test",
+		Direction:   "in",
+		Success:     true,
+		IPAddress:   "192.168.1.100",
+	}
+	if err := db.Insert(entry); err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	logs, err := db.QueryLogs(QueryOptions{Last: 1})
+	if err != nil {
+		t.Fatalf("QueryLogs: %v", err)
+	}
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 log, got %d", len(logs))
+	}
+	if logs[0].IPAddress != "192.168.1.100" {
+		t.Errorf("IPAddress: got %q, want %q", logs[0].IPAddress, "192.168.1.100")
+	}
+}
+
 func TestPurge(t *testing.T) {
 	db := openTempDB(t)
 

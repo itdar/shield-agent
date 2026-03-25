@@ -25,6 +25,44 @@ type ActionLog struct {
 	PayloadSize int
 	AuthStatus  string
 	ErrorCode   string
+	IPAddress   string
+}
+
+// migration represents a single schema migration step.
+type migration struct {
+	version int
+	sql     string
+}
+
+// migrations is the ordered list of schema migrations.
+// Each migration is applied exactly once and tracked in schema_versions.
+var migrations = []migration{
+	{
+		version: 1,
+		sql: `
+CREATE TABLE IF NOT EXISTS action_logs (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	timestamp       DATETIME NOT NULL,
+	agent_id_hash   TEXT NOT NULL,
+	method          TEXT,
+	direction       TEXT,
+	success         BOOLEAN,
+	latency_ms      REAL,
+	payload_size    INTEGER,
+	auth_status     TEXT,
+	error_code      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp
+	ON action_logs (timestamp);
+CREATE INDEX IF NOT EXISTS idx_action_logs_agent_timestamp
+	ON action_logs (agent_id_hash, timestamp);
+CREATE INDEX IF NOT EXISTS idx_action_logs_method
+	ON action_logs (method);`,
+	},
+	{
+		version: 2,
+		sql:     `ALTER TABLE action_logs ADD COLUMN ip_address TEXT DEFAULT '';`,
+	},
 }
 
 // Open opens (or creates) a SQLite database at path, enables WAL mode, and
@@ -49,33 +87,48 @@ func Open(path string) (*DB, error) {
 	return db, nil
 }
 
-// migrate creates the schema if it does not already exist.
+// migrate applies all pending schema migrations in order.
 func (db *DB) migrate() error {
-	const schema = `
-CREATE TABLE IF NOT EXISTS action_logs (
-	id              INTEGER PRIMARY KEY AUTOINCREMENT,
-	timestamp       DATETIME NOT NULL,
-	agent_id_hash   TEXT NOT NULL,
-	method          TEXT,
-	direction       TEXT,
-	success         BOOLEAN,
-	latency_ms      REAL,
-	payload_size    INTEGER,
-	auth_status     TEXT,
-	error_code      TEXT
-);
+	// Ensure the schema_versions tracking table exists.
+	const versionTable = `
+CREATE TABLE IF NOT EXISTS schema_versions (
+	version   INTEGER PRIMARY KEY,
+	applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`
+	if _, err := db.conn.Exec(versionTable); err != nil {
+		return fmt.Errorf("creating schema_versions table: %w", err)
+	}
 
-CREATE INDEX IF NOT EXISTS idx_action_logs_timestamp
-	ON action_logs (timestamp);
+	current, err := db.currentVersion()
+	if err != nil {
+		return fmt.Errorf("reading current schema version: %w", err)
+	}
 
-CREATE INDEX IF NOT EXISTS idx_action_logs_agent_timestamp
-	ON action_logs (agent_id_hash, timestamp);
+	for _, m := range migrations {
+		if m.version <= current {
+			continue
+		}
+		if _, err := db.conn.Exec(m.sql); err != nil {
+			return fmt.Errorf("applying migration %d: %w", m.version, err)
+		}
+		if _, err := db.conn.Exec("INSERT INTO schema_versions (version) VALUES (?)", m.version); err != nil {
+			return fmt.Errorf("recording migration %d: %w", m.version, err)
+		}
+	}
+	return nil
+}
 
-CREATE INDEX IF NOT EXISTS idx_action_logs_method
-	ON action_logs (method);
-`
-	_, err := db.conn.Exec(schema)
-	return err
+// currentVersion returns the highest applied migration version, or 0 if none.
+func (db *DB) currentVersion() (int, error) {
+	row := db.conn.QueryRow("SELECT COALESCE(MAX(version), 0) FROM schema_versions")
+	var v int
+	err := row.Scan(&v)
+	return v, err
+}
+
+// SchemaVersion returns the current schema version (for diagnostics).
+func (db *DB) SchemaVersion() (int, error) {
+	return db.currentVersion()
 }
 
 // Close closes the underlying database connection.
@@ -87,9 +140,9 @@ func (db *DB) Close() error {
 func (db *DB) Insert(log ActionLog) error {
 	const q = `
 INSERT INTO action_logs
-	(timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code)
+	(timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address)
 VALUES
-	(?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := db.conn.Exec(q,
 		log.Timestamp.UTC(),
@@ -101,6 +154,7 @@ VALUES
 		log.PayloadSize,
 		log.AuthStatus,
 		log.ErrorCode,
+		log.IPAddress,
 	)
 	return err
 }
@@ -132,7 +186,7 @@ func (db *DB) QueryLogs(opts QueryOptions) ([]ActionLog, error) {
 		args = append(args, opts.Method)
 	}
 
-	q := "SELECT timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code FROM action_logs"
+	q := "SELECT timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address FROM action_logs"
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -155,7 +209,7 @@ func (db *DB) QueryLogs(opts QueryOptions) ([]ActionLog, error) {
 		var l ActionLog
 		var ts string
 		if err := rows.Scan(&ts, &l.AgentIDHash, &l.Method, &l.Direction,
-			&l.Success, &l.LatencyMs, &l.PayloadSize, &l.AuthStatus, &l.ErrorCode); err != nil {
+			&l.Success, &l.LatencyMs, &l.PayloadSize, &l.AuthStatus, &l.ErrorCode, &l.IPAddress); err != nil {
 			return nil, fmt.Errorf("scanning log row: %w", err)
 		}
 		if t, err := time.Parse("2006-01-02T15:04:05Z", ts); err == nil {
