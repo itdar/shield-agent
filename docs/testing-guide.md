@@ -1,16 +1,16 @@
-# shield-agent Testing Guide
+# shield-agent 테스트 가이드
 
-A practical, hands-on guide for testing all major features of shield-agent.
+실제로 따라하면서 shield-agent의 주요 기능을 테스트할 수 있는 실용 가이드입니다.
 
 ---
 
-## Prerequisites
+## 사전 준비
 
-- **Go 1.22+** (the module requires Go 1.25, but 1.22+ will fetch the toolchain automatically)
-- A terminal with `curl` and `jq` installed
-- (Optional) A running MCP server for proxy-mode tests (e.g. [fastmcp](https://github.com/jlowin/fastmcp))
+- **Go 1.22+** 설치
+- `curl`, `jq` 설치된 터미널
+- (선택) 프록시 모드 테스트용 MCP 서버 (예: [fastmcp](https://github.com/jlowin/fastmcp))
 
-### Build from source
+### 소스에서 빌드
 
 ```bash
 git clone https://github.com/itdar/shield-agent.git
@@ -18,15 +18,13 @@ cd shield-agent
 go build -o shield-agent ./cmd/shield-agent
 ```
 
-Verify the binary:
+바이너리 확인:
 
 ```bash
 ./shield-agent --help
 ```
 
-### Create a minimal config
-
-Copy the example configuration:
+### 기본 설정 파일 생성
 
 ```bash
 cp shield-agent.example.yaml shield-agent.yaml
@@ -34,36 +32,36 @@ cp shield-agent.example.yaml shield-agent.yaml
 
 ---
 
-## 1. stdio Mode -- Wrapping an MCP Server
+## 1. stdio 모드 — MCP 서버 래핑
 
-In stdio mode, shield-agent wraps a child process and intercepts JSON-RPC messages on stdin/stdout.
+stdio 모드에서 shield-agent는 자식 프로세스를 래핑하고 stdin/stdout의 JSON-RPC 메시지를 가로챕니다.
 
-### Basic test with `echo`
+### 기본 테스트 (`echo` 사용)
 
 ```bash
 echo '{"jsonrpc":"2.0","method":"initialize","id":1}' | ./shield-agent cat
 ```
 
-`cat` echoes stdin back to stdout, so shield-agent intercepts the JSON-RPC message in both directions.
+`cat`은 stdin을 그대로 stdout으로 출력하므로, shield-agent가 양방향으로 JSON-RPC 메시지를 가로챕니다.
 
-### Wrapping a real MCP server
+### 실제 MCP 서버 래핑
 
 ```bash
 ./shield-agent python server.py
 ./shield-agent --verbose node server.js --port 8080
 ```
 
-The `--verbose` flag sets the log level to `debug`, so you can see every intercepted message.
+`--verbose` 플래그는 로그 레벨을 `debug`로 설정하여 가로챈 모든 메시지를 확인할 수 있습니다.
 
-### Verify monitoring is running
+### 모니터링 서버 확인
 
-While shield-agent is running in stdio mode, the monitoring server starts on the default address:
+shield-agent가 stdio 모드로 실행 중일 때, 기본 주소에서 모니터링 서버가 시작됩니다:
 
 ```bash
 curl -s http://127.0.0.1:9090/healthz | jq .
 ```
 
-Expected output:
+예상 출력:
 
 ```json
 {
@@ -74,33 +72,33 @@ Expected output:
 
 ---
 
-## 2. Proxy Mode -- Proxying an Upstream MCP Server
+## 2. Proxy 모드 — 업스트림 MCP 서버 프록시
 
-Proxy mode sits between an MCP client and an upstream HTTP-based MCP server.
+프록시 모드는 MCP 클라이언트와 업스트림 HTTP 기반 MCP 서버 사이에 위치합니다.
 
-### Start an upstream MCP server
+### 업스트림 MCP 서버 시작
 
-If you have a fastmcp server:
+fastmcp 서버가 있는 경우:
 
 ```bash
-# In a separate terminal
+# 별도 터미널에서
 python -m fastmcp run server.py --port 8000
 ```
 
-### SSE transport
+### SSE 전송 방식
 
 ```bash
 ./shield-agent proxy --listen :8888 --upstream http://localhost:8000 --transport sse
 ```
 
-Test the SSE endpoint:
+SSE 엔드포인트 테스트:
 
 ```bash
-# Open the SSE stream (will block, printing events)
+# SSE 스트림 열기 (이벤트가 출력되면서 블로킹됨)
 curl -N http://localhost:8888/sse
 ```
 
-In another terminal, send a message (replace `<sessionId>` with the value from the SSE stream):
+다른 터미널에서 메시지 전송 (SSE 스트림에서 받은 `<sessionId>` 값으로 교체):
 
 ```bash
 curl -X POST "http://localhost:8888/messages?sessionId=<sessionId>" \
@@ -108,13 +106,13 @@ curl -X POST "http://localhost:8888/messages?sessionId=<sessionId>" \
   -d '{"jsonrpc":"2.0","method":"initialize","id":1}'
 ```
 
-### Streamable HTTP transport
+### Streamable HTTP 전송 방식
 
 ```bash
 ./shield-agent proxy --listen :8888 --upstream http://localhost:8000 --transport streamable-http
 ```
 
-Test with a POST request:
+POST 요청 테스트:
 
 ```bash
 curl -X POST http://localhost:8888/mcp \
@@ -124,51 +122,51 @@ curl -X POST http://localhost:8888/mcp \
 
 ---
 
-## 3. Log Query CLI
+## 3. 로그 조회 CLI
 
-After running shield-agent (in either mode) and sending some messages, query the stored logs.
+shield-agent를 실행하고 메시지를 보낸 후, 저장된 로그를 조회합니다.
 
-### Show the last 10 log entries
+### 최근 10개 로그 항목 조회
 
 ```bash
 ./shield-agent logs --last 10
 ```
 
-### Logs from the last hour in JSON format
+### 최근 1시간 로그를 JSON 형식으로
 
 ```bash
 ./shield-agent logs --since 1h --format json
 ```
 
-### Filter by agent ID and method
+### 에이전트 ID와 메서드로 필터링
 
 ```bash
 ./shield-agent logs --agent <id> --method tools/call
 ```
 
-### Combine filters
+### 필터 조합
 
 ```bash
 ./shield-agent logs --last 5 --since 30m --method initialize --format json
 ```
 
-The default output is a table:
+기본 출력은 테이블 형식입니다:
 
 ```
-TIMESTAMP          DIRECTION  METHOD                         OK    LATENCY_MS AUTH
-2026-03-25T10:...  in         initialize                     true  0.0        unsigned
-2026-03-25T10:...  out        initialize                     true  12.3       unsigned
+TIMESTAMP          DIRECTION  METHOD                         OK    LATENCY_MS IP               AUTH
+2026-03-25T10:...  in         initialize                     true  0.0                         unsigned
+2026-03-25T10:...  out        initialize                     true  12.3                        unsigned
 ```
 
 ---
 
-## 4. Rate Limit Verification
+## 4. Rate Limit 검증
 
-The guard middleware enforces per-method rate limiting. To test it, set a low rate limit in your config.
+guard 미들웨어는 메서드별 속도 제한을 시행합니다. 낮은 제한값을 설정하여 테스트합니다.
 
-### Step 1: Configure a low rate limit
+### 1단계: 낮은 rate limit 설정
 
-Edit `shield-agent.yaml`:
+`shield-agent.yaml` 수정:
 
 ```yaml
 middlewares:
@@ -182,17 +180,17 @@ middlewares:
     enabled: true
 ```
 
-### Step 2: Start the proxy
+### 2단계: 프록시 시작
 
 ```bash
 ./shield-agent proxy --listen :8888 --upstream http://localhost:8000 --transport streamable-http
 ```
 
-### Step 3: Send requests in a rapid loop
+### 3단계: 빠른 연속 요청 전송
 
 ```bash
 for i in $(seq 1 5); do
-  echo "--- Request $i ---"
+  echo "--- 요청 $i ---"
   curl -s -X POST http://localhost:8888/mcp \
     -H "Content-Type: application/json" \
     -d "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":$i}"
@@ -200,7 +198,7 @@ for i in $(seq 1 5); do
 done
 ```
 
-The first 3 requests should succeed. Requests 4 and 5 should return a JSON-RPC error response like:
+처음 3개 요청은 성공합니다. 4번째와 5번째 요청은 다음과 같은 JSON-RPC 에러 응답을 반환합니다:
 
 ```json
 {
@@ -213,49 +211,49 @@ The first 3 requests should succeed. Requests 4 and 5 should return a JSON-RPC e
 }
 ```
 
-### Step 4: Verify the Prometheus counter
+### 4단계: Prometheus 카운터 확인
 
 ```bash
 curl -s http://127.0.0.1:9090/metrics | grep shield_agent_rate_limit_rejected_total
 ```
 
-You should see a counter for the `tools/list` method with a value matching the number of rejected requests.
+거부된 요청 수와 일치하는 카운터 값을 확인할 수 있습니다.
 
 ---
 
-## 5. SIGHUP Config Reload
+## 5. SIGHUP 설정 리로드
 
-shield-agent supports hot-reloading configuration, key stores, and the middleware chain by sending `SIGHUP` -- no restart required.
+shield-agent는 `SIGHUP` 신호를 받으면 재시작 없이 설정 파일, 키 스토어, 미들웨어 체인을 핫 리로드합니다.
 
-### Step 1: Start the proxy with verbose logging
+### 1단계: verbose 로깅으로 프록시 시작
 
 ```bash
 ./shield-agent --verbose proxy --listen :8888 --upstream http://localhost:8000
 ```
 
-Note the PID from the log output, or find it:
+로그 출력에서 PID를 확인하거나 다음으로 찾습니다:
 
 ```bash
 pgrep -f "shield-agent proxy"
 ```
 
-### Step 2: Edit the config while running
+### 2단계: 실행 중에 설정 파일 수정
 
-For example, change the security mode from `open` to `closed` in `shield-agent.yaml`:
+예를 들어, `shield-agent.yaml`에서 보안 모드를 `open`에서 `closed`로 변경:
 
 ```yaml
 security:
   mode: "closed"
 ```
 
-Or change the log level:
+또는 로그 레벨 변경:
 
 ```yaml
 logging:
   level: "debug"
 ```
 
-Or enable/disable a middleware:
+또는 미들웨어 활성화/비활성화:
 
 ```yaml
 middlewares:
@@ -263,37 +261,37 @@ middlewares:
     enabled: false
 ```
 
-### Step 3: Send SIGHUP
+### 3단계: SIGHUP 전송
 
 ```bash
 kill -SIGHUP $(pgrep -f "shield-agent proxy")
 ```
 
-### Step 4: Check the logs
+### 4단계: 로그 확인
 
-You should see log output confirming the reload:
+리로드를 확인하는 로그 출력이 나타납니다:
 
 ```
 {"level":"info","msg":"received SIGHUP, reloading configuration"}
 {"level":"info","msg":"configuration reloaded successfully"}
 ```
 
-The new settings take effect immediately for all subsequent requests.
+이후 모든 요청에 새 설정이 즉시 적용됩니다.
 
 ---
 
-## 6. TLS Mode
+## 6. TLS 모드
 
-The proxy supports HTTPS when you provide a certificate and key.
+프록시는 인증서와 키를 제공하면 HTTPS를 지원합니다.
 
-### Generate a self-signed certificate (for testing)
+### 자체 서명 인증서 생성 (테스트용)
 
 ```bash
 openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
   -days 365 -nodes -subj "/CN=localhost"
 ```
 
-### Start the proxy with TLS
+### TLS로 프록시 시작
 
 ```bash
 ./shield-agent proxy \
@@ -304,9 +302,9 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
   --tls-key key.pem
 ```
 
-You should see a log message: `"msg":"TLS enabled","cert":"cert.pem"`.
+`"msg":"TLS enabled","cert":"cert.pem"` 로그 메시지가 나타납니다.
 
-### Test with curl
+### curl로 테스트
 
 ```bash
 curl -k -X POST https://localhost:8888/mcp \
@@ -314,11 +312,11 @@ curl -k -X POST https://localhost:8888/mcp \
   -d '{"jsonrpc":"2.0","method":"initialize","id":1}'
 ```
 
-The `-k` flag tells curl to accept the self-signed certificate. In production, use a proper CA-signed certificate.
+`-k` 플래그는 자체 서명 인증서를 허용합니다. 프로덕션에서는 CA에서 발급한 인증서를 사용하세요.
 
-### TLS via config file
+### 설정 파일로 TLS 설정
 
-Instead of CLI flags, you can set TLS in `shield-agent.yaml`:
+CLI 플래그 대신 `shield-agent.yaml`에서 TLS를 설정할 수 있습니다:
 
 ```yaml
 server:
@@ -326,21 +324,21 @@ server:
   tls_key: "/path/to/key.pem"
 ```
 
-CLI flags (`--tls-cert`, `--tls-key`) override config file values when both are provided.
+CLI 플래그(`--tls-cert`, `--tls-key`)는 설정 파일 값보다 우선합니다.
 
 ---
 
-## 7. Monitoring Endpoints
+## 7. 모니터링 엔드포인트
 
-The monitoring server runs on `127.0.0.1:9090` by default (configurable via `--monitor-addr` or `server.monitor_addr` in the config).
+모니터링 서버는 기본적으로 `127.0.0.1:9090`에서 실행됩니다 (`--monitor-addr` 또는 설정 파일의 `server.monitor_addr`로 변경 가능).
 
-### Root endpoint -- service index
+### 루트 엔드포인트 — 서비스 인덱스
 
 ```bash
 curl -s http://127.0.0.1:9090/ | jq .
 ```
 
-Expected:
+예상 출력:
 
 ```json
 {
@@ -349,13 +347,13 @@ Expected:
 }
 ```
 
-### Health check
+### 헬스 체크
 
 ```bash
 curl -s http://127.0.0.1:9090/healthz | jq .
 ```
 
-In stdio mode (child process running):
+stdio 모드 (자식 프로세스 실행 중):
 
 ```json
 {
@@ -364,7 +362,7 @@ In stdio mode (child process running):
 }
 ```
 
-In proxy mode, the health check also probes the upstream server. If the upstream is down:
+프록시 모드에서는 업스트림 서버도 프로브합니다. 업스트림이 다운된 경우:
 
 ```json
 {
@@ -373,35 +371,35 @@ In proxy mode, the health check also probes the upstream server. If the upstream
 }
 ```
 
-### Prometheus metrics
+### Prometheus 메트릭
 
 ```bash
 curl -s http://127.0.0.1:9090/metrics
 ```
 
-Key metrics to look for:
+주요 메트릭:
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| `shield_agent_messages_total` | Counter | Total JSON-RPC messages (labels: `direction`, `method`) |
-| `shield_agent_auth_total` | Counter | Authentication events (labels: `status`) |
-| `shield_agent_message_latency_seconds` | Histogram | Processing latency per method |
-| `shield_agent_child_process_up` | Gauge | 1 if the child process is alive (stdio mode) |
-| `shield_agent_rate_limit_rejected_total` | Counter | Rate-limited requests (labels: `method`) |
+| 메트릭 | 타입 | 설명 |
+|--------|------|------|
+| `shield_agent_messages_total` | Counter | 전체 JSON-RPC 메시지 수 (레이블: `direction`, `method`) |
+| `shield_agent_auth_total` | Counter | 인증 이벤트 (레이블: `status`) |
+| `shield_agent_message_latency_seconds` | Histogram | 메서드별 처리 레이턴시 |
+| `shield_agent_child_process_up` | Gauge | 자식 프로세스 활성 여부 (stdio 모드, 1=alive) |
+| `shield_agent_rate_limit_rejected_total` | Counter | 속도 제한된 요청 수 (레이블: `method`) |
 
-Filter for shield-agent metrics only:
+shield-agent 메트릭만 필터링:
 
 ```bash
 curl -s http://127.0.0.1:9090/metrics | grep "^shield_agent_"
 ```
 
-### Custom monitor address
+### 커스텀 모니터 주소
 
 ```bash
 ./shield-agent --monitor-addr 0.0.0.0:9191 proxy --listen :8888 --upstream http://localhost:8000
 ```
 
-Then query on the custom port:
+커스텀 포트로 쿼리:
 
 ```bash
 curl -s http://localhost:9191/healthz | jq .
@@ -409,16 +407,16 @@ curl -s http://localhost:9191/healthz | jq .
 
 ---
 
-## Quick Reference
+## 빠른 참조
 
-| Scenario | Command |
-|----------|---------|
-| stdio wrap | `./shield-agent <command> [args...]` |
-| proxy (SSE) | `./shield-agent proxy --listen :8888 --upstream <url> --transport sse` |
-| proxy (Streamable HTTP) | `./shield-agent proxy --listen :8888 --upstream <url> --transport streamable-http` |
-| proxy (TLS) | `./shield-agent proxy --listen :8888 --upstream <url> --tls-cert cert.pem --tls-key key.pem` |
-| query logs | `./shield-agent logs --last 10 --format json` |
-| health check | `curl http://127.0.0.1:9090/healthz` |
-| Prometheus metrics | `curl http://127.0.0.1:9090/metrics` |
-| config reload | `kill -SIGHUP $(pgrep -f "shield-agent")` |
-| disable middleware | `./shield-agent --disable-middleware guard proxy --upstream <url>` |
+| 시나리오 | 명령어 |
+|----------|--------|
+| stdio 래핑 | `./shield-agent <command> [args...]` |
+| 프록시 (SSE) | `./shield-agent proxy --listen :8888 --upstream <url> --transport sse` |
+| 프록시 (Streamable HTTP) | `./shield-agent proxy --listen :8888 --upstream <url> --transport streamable-http` |
+| 프록시 (TLS) | `./shield-agent proxy --listen :8888 --upstream <url> --tls-cert cert.pem --tls-key key.pem` |
+| 로그 조회 | `./shield-agent logs --last 10 --format json` |
+| 헬스 체크 | `curl http://127.0.0.1:9090/healthz` |
+| Prometheus 메트릭 | `curl http://127.0.0.1:9090/metrics` |
+| 설정 리로드 | `kill -SIGHUP $(pgrep -f "shield-agent")` |
+| 미들웨어 비활성화 | `./shield-agent --disable-middleware guard proxy --upstream <url>` |

@@ -276,8 +276,7 @@ shield-agent logs --last 50 --agent <id> --since 1h --method <name> --format jso
 
 ### 2.2 문서
 
-- [ ] README.md (영문, 오픈소스 메인)
-- [ ] docs/ko/ (한글 문서, 시각화 중심)
+- [ ] README.md (일단 한글, 시각화 중심, 추후에 영문으로 오픈소스 메인 느낌 살려서)
   - 아키텍처 다이어그램 (mermaid)
   - 미들웨어 흐름도
   - 설치 & 사용법
