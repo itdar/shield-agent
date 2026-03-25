@@ -11,35 +11,55 @@ import (
 	"github.com/itdar/shield-agent/internal/jsonrpc"
 )
 
-// GuardMiddleware enforces rate limits, request size limits, and IP-based access control.
+// GuardMiddleware enforces rate limits, request size limits, IP-based access control,
+// brute force protection, and malformed payload detection.
 type GuardMiddleware struct {
 	PassthroughMiddleware
-	limiter     *rateLimiter
-	maxBodySize int64
-	blocklist   []net.IPNet
-	allowlist   []net.IPNet
-	logger      *slog.Logger
-	onReject    func() // called when a request is rejected by rate limit
+	limiter        *rateLimiter
+	maxBodySize    int64
+	blocklist      []net.IPNet
+	allowlist      []net.IPNet
+	logger         *slog.Logger
+	onReject       func() // called when a request is rejected by rate limit
+	bruteForce     *bruteForceTracker
+	validateJSON   bool
 }
 
 // GuardConfig holds configuration for the guard middleware.
 type GuardConfig struct {
-	RateLimitPerMin int      // requests per minute per method (0 = unlimited)
-	MaxBodySize     int64    // max request body size in bytes (0 = unlimited)
-	IPBlocklist     []string // CIDR strings to block
-	IPAllowlist     []string // CIDR strings to allow (empty = allow all)
+	RateLimitPerMin     int      // requests per minute per method (0 = unlimited)
+	MaxBodySize         int64    // max request body size in bytes (0 = unlimited)
+	IPBlocklist         []string // CIDR strings to block
+	IPAllowlist         []string // CIDR strings to allow (empty = allow all)
+	BruteForceMaxFails  int      // consecutive failures before auto-block (0 = disabled)
+	BruteForceWindow    time.Duration // window for tracking failures (default 5m)
+	BruteForceBlockDur  time.Duration // how long to block (default 10m)
+	ValidateJSONRPC     bool     // reject malformed JSON-RPC payloads
 }
 
 // NewGuardMiddleware creates a GuardMiddleware from the given config.
 func NewGuardMiddleware(cfg GuardConfig, logger *slog.Logger, onReject func()) *GuardMiddleware {
 	g := &GuardMiddleware{
-		maxBodySize: cfg.MaxBodySize,
-		logger:      logger,
-		onReject:    onReject,
+		maxBodySize:  cfg.MaxBodySize,
+		logger:       logger,
+		onReject:     onReject,
+		validateJSON: cfg.ValidateJSONRPC,
 	}
 
 	if cfg.RateLimitPerMin > 0 {
 		g.limiter = newRateLimiter(cfg.RateLimitPerMin, time.Minute)
+	}
+
+	if cfg.BruteForceMaxFails > 0 {
+		window := cfg.BruteForceWindow
+		if window == 0 {
+			window = 5 * time.Minute
+		}
+		blockDur := cfg.BruteForceBlockDur
+		if blockDur == 0 {
+			blockDur = 10 * time.Minute
+		}
+		g.bruteForce = newBruteForceTracker(cfg.BruteForceMaxFails, window, blockDur)
 	}
 
 	for _, cidr := range cfg.IPBlocklist {
@@ -72,9 +92,24 @@ func NewGuardMiddleware(cfg GuardConfig, logger *slog.Logger, onReject func()) *
 // Name returns the name of this middleware.
 func (g *GuardMiddleware) Name() string { return "guard" }
 
-// ProcessRequest enforces size limits and rate limits on incoming requests.
+// ProcessRequest enforces size limits, rate limits, brute force checks,
+// and malformed JSON-RPC validation on incoming requests.
 func (g *GuardMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Request) (*jsonrpc.Request, error) {
-	// Check request body size
+	// Validate JSON-RPC structure.
+	if g.validateJSON {
+		if req.JSONRPC != "" && req.JSONRPC != "2.0" {
+			g.logger.Warn("malformed JSON-RPC: invalid version",
+				slog.String("version", req.JSONRPC),
+			)
+			return nil, fmt.Errorf("malformed JSON-RPC: version must be \"2.0\", got %q", req.JSONRPC)
+		}
+		if req.Method == "" {
+			g.logger.Warn("malformed JSON-RPC: empty method")
+			return nil, fmt.Errorf("malformed JSON-RPC: method must not be empty")
+		}
+	}
+
+	// Check request body size.
 	if g.maxBodySize > 0 && int64(len(req.Params)) > g.maxBodySize {
 		g.logger.Warn("request exceeds size limit",
 			slog.String("method", req.Method),
@@ -84,7 +119,21 @@ func (g *GuardMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Reque
 		return nil, fmt.Errorf("request body size %d exceeds limit %d", len(req.Params), g.maxBodySize)
 	}
 
-	// Rate limiting keyed by method
+	// Brute force check (keyed by method as proxy for source identity).
+	if g.bruteForce != nil {
+		key := req.Method
+		if g.bruteForce.isBlocked(key) {
+			g.logger.Warn("temporarily blocked by brute force protection",
+				slog.String("method", req.Method),
+			)
+			if g.onReject != nil {
+				g.onReject()
+			}
+			return nil, fmt.Errorf("temporarily blocked due to repeated failures for %q", req.Method)
+		}
+	}
+
+	// Rate limiting keyed by method.
 	if g.limiter != nil {
 		key := req.Method
 		if !g.limiter.allow(key) {
@@ -99,6 +148,45 @@ func (g *GuardMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Reque
 	}
 
 	return req, nil
+}
+
+// RecordFailure records a failed request for brute force tracking.
+func (g *GuardMiddleware) RecordFailure(key string) {
+	if g.bruteForce != nil {
+		g.bruteForce.recordFailure(key)
+	}
+}
+
+// CheckIPAccess checks if an IP is allowed/blocked by the guard's IP lists.
+// Returns an error if the IP is blocked.
+func (g *GuardMiddleware) CheckIPAccess(ipStr string) error {
+	if len(g.blocklist) == 0 && len(g.allowlist) == 0 {
+		return nil
+	}
+
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return nil // unparseable IPs are allowed through (e.g. unix sockets)
+	}
+
+	// Check blocklist first.
+	for _, blocked := range g.blocklist {
+		if blocked.Contains(ip) {
+			return fmt.Errorf("IP %s is blocked", ipStr)
+		}
+	}
+
+	// If allowlist is set, IP must be in it.
+	if len(g.allowlist) > 0 {
+		for _, allowed := range g.allowlist {
+			if allowed.Contains(ip) {
+				return nil
+			}
+		}
+		return fmt.Errorf("IP %s is not in allowlist", ipStr)
+	}
+
+	return nil
 }
 
 // rateLimiter implements a fixed-window rate limiter.
@@ -156,6 +244,85 @@ func (rl *rateLimiter) cleanup() {
 	for key, b := range rl.buckets {
 		if now.Sub(b.windowStart) >= rl.window*2 {
 			delete(rl.buckets, key)
+		}
+	}
+}
+
+// bruteForceTracker tracks consecutive failures and temporarily blocks sources.
+type bruteForceTracker struct {
+	maxFails int
+	window   time.Duration
+	blockDur time.Duration
+	mu       sync.Mutex
+	failures map[string]*failRecord
+}
+
+type failRecord struct {
+	count     int
+	firstFail time.Time
+	blockedAt time.Time // zero if not blocked
+}
+
+func newBruteForceTracker(maxFails int, window, blockDur time.Duration) *bruteForceTracker {
+	bf := &bruteForceTracker{
+		maxFails: maxFails,
+		window:   window,
+		blockDur: blockDur,
+		failures: make(map[string]*failRecord),
+	}
+	go func() {
+		ticker := time.NewTicker(window)
+		defer ticker.Stop()
+		for range ticker.C {
+			bf.cleanup()
+		}
+	}()
+	return bf
+}
+
+func (bf *bruteForceTracker) recordFailure(key string) {
+	bf.mu.Lock()
+	defer bf.mu.Unlock()
+
+	now := time.Now()
+	rec, ok := bf.failures[key]
+	if !ok || now.Sub(rec.firstFail) >= bf.window {
+		bf.failures[key] = &failRecord{count: 1, firstFail: now}
+		return
+	}
+	rec.count++
+	if rec.count >= bf.maxFails && rec.blockedAt.IsZero() {
+		rec.blockedAt = now
+	}
+}
+
+func (bf *bruteForceTracker) isBlocked(key string) bool {
+	bf.mu.Lock()
+	defer bf.mu.Unlock()
+
+	rec, ok := bf.failures[key]
+	if !ok {
+		return false
+	}
+	if rec.blockedAt.IsZero() {
+		return false
+	}
+	if time.Since(rec.blockedAt) >= bf.blockDur {
+		delete(bf.failures, key)
+		return false
+	}
+	return true
+}
+
+func (bf *bruteForceTracker) cleanup() {
+	bf.mu.Lock()
+	defer bf.mu.Unlock()
+	now := time.Now()
+	for key, rec := range bf.failures {
+		if !rec.blockedAt.IsZero() && now.Sub(rec.blockedAt) >= bf.blockDur {
+			delete(bf.failures, key)
+		} else if rec.blockedAt.IsZero() && now.Sub(rec.firstFail) >= bf.window*2 {
+			delete(bf.failures, key)
 		}
 	}
 }

@@ -101,6 +101,19 @@ func createMiddleware(entry config.MiddlewareEntry, deps Dependencies) (Middlewa
 				}
 			}
 		}
+		if v, ok := entry.Config["brute_force_max_fails"]; ok {
+			switch n := v.(type) {
+			case int:
+				cfg.BruteForceMaxFails = n
+			case float64:
+				cfg.BruteForceMaxFails = int(n)
+			}
+		}
+		if v, ok := entry.Config["validate_jsonrpc"]; ok {
+			if b, ok := v.(bool); ok {
+				cfg.ValidateJSONRPC = b
+			}
+		}
 		mw := NewGuardMiddleware(cfg, deps.Logger, func() {
 			if deps.Metrics != nil {
 				deps.Metrics.RateLimitRejected.WithLabelValues("unknown").Inc()

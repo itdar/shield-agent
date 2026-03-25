@@ -76,5 +76,9 @@ middlewares:
       # List of CIDR ranges or IPs to allow (empty = allow all).
       # ip_allowlist:
       #   - "10.0.0.0/8"
+      # Brute force protection: auto-block after N consecutive failures (0 = disabled).
+      # brute_force_max_fails: 5
+      # Validate JSON-RPC structure (reject malformed payloads).
+      # validate_jsonrpc: true
   - name: log
     enabled: true
