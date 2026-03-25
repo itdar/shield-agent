@@ -1,0 +1,3 @@
+FROM scratch
+COPY shield-agent /shield-agent
+ENTRYPOINT ["/shield-agent"]

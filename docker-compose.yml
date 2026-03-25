@@ -1,0 +1,15 @@
+# Example docker-compose for shield-agent proxy mode.
+# Usage: docker-compose up
+services:
+  shield:
+    image: ghcr.io/itdar/shield-agent:latest
+    command: proxy --listen :8888 --upstream http://mcp-server:8000
+    ports:
+      - "8888:8888"
+      - "9090:9090"
+    volumes:
+      - ./shield-agent.yaml:/shield-agent.yaml:ro
+      - ./keys.yaml:/keys.yaml:ro
+  # Replace with your actual MCP server:
+  # mcp-server:
+  #   image: your-mcp-server:latest

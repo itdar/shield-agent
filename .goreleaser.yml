@@ -32,15 +32,13 @@ dockers:
   - image_templates:
       - "ghcr.io/itdar/shield-agent:{{ .Version }}"
       - "ghcr.io/itdar/shield-agent:latest"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
     build_flag_templates:
       - "--pull"
       - "--label=org.opencontainers.image.created={{.Date}}"
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-    extra_files:
-      - Dockerfile
 
 snapshot:
   name_template: "{{ incpatch .Version }}-next"
