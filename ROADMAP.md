@@ -250,7 +250,7 @@ shield-agent logs --last 50 --agent <id> --since 1h --method <name> --format jso
 
 ### 2.1 배포
 
-- [ ] **Dockerfile** (multi-stage, scratch 기반 ~10MB)
+- [x] **Dockerfile** (multi-stage, scratch 기반 ~10MB)
   ```dockerfile
   FROM golang:1.22-alpine AS build
   RUN go build -o /shield-agent ./cmd/shield-agent
@@ -259,7 +259,7 @@ shield-agent logs --last 50 --agent <id> --since 1h --method <name> --format jso
   COPY --from=build /shield-agent /shield-agent
   ENTRYPOINT ["/shield-agent"]
   ```
-- [ ] **docker-compose.yml** 예제
+- [x] **docker-compose.yml** 예제
   ```yaml
   services:
     shield:
@@ -269,20 +269,18 @@ shield-agent logs --last 50 --agent <id> --since 1h --method <name> --format jso
     mcp-server:
       image: your-mcp-server
   ```
-- [ ] **GoReleaser**: Linux/macOS/Windows 바이너리 + Docker image 자동 빌드
-- [ ] **Homebrew tap**: `brew install itdar/tap/shield-agent`
-- [ ] **curl 설치 스크립트**: `curl -sSL https://shield-agent.gino.im | sh`
-- [ ] **GitHub Releases**: 태그 push → CI 자동 배포
+- [x] **GoReleaser**: Linux/macOS/Windows 바이너리 + Docker image 자동 빌드
+- [x] **Homebrew tap**: `brew install itdar/tap/shield-agent`
+- [x] **curl 설치 스크립트**: `scripts/install.sh`
+- [x] **GitHub Releases**: 태그 push → CI 자동 배포 (`release.yml`)
 
 ### 2.2 문서
 
-- [ ] README.md (일단 한글, 시각화 중심, 추후에 영문으로 오픈소스 메인 느낌 살려서)
-  - 아키텍처 다이어그램 (mermaid)
-  - 미들웨어 흐름도
-  - 설치 & 사용법
+- [x] README.md (한글, ASCII 다이어그램, 설치 & 사용법, 전체 기능 소개)
+- [ ] README.md 영문 버전 (오픈소스 메인용)
 - [ ] CONTRIBUTING.md
 - [ ] CODE_OF_CONDUCT.md
-- [ ] shield-agent.example.yaml (주석 달린 전체 설정 예시)
+- [x] shield-agent.example.yaml (주석 달린 전체 설정 예시)
 
 ---
 
