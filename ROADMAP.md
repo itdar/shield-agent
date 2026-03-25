@@ -301,16 +301,16 @@ shield-agent logs --last 50 --agent <id> --since 1h --method <name> --format jso
 └──────────┘               └──────────────┘
 ```
 
-- [ ] **토큰 발급 CLI**: `shield-agent token create --name "agent-1" --quota 1000/h`
-- [ ] **토큰 스키마**
+- [x] **토큰 발급 CLI**: `shield-agent token create --name "agent-1" --quota-hourly 1000`
+- [x] **토큰 스키마** (migration v3, v4)
   ```sql
   tokens: id, name, token_hash, created_at, expires_at, active,
           quota_hourly, quota_monthly, allowed_methods, ip_allowlist
   token_usage: token_id, timestamp, method, success, latency_ms
   ```
-- [ ] **Token Middleware**: `Authorization: Bearer <token>` 또는 `X-Shield-Token` 헤더
-- [ ] **Quota 관리**: 시간당/월간 사용량 추적, 초과 시 429
-- [ ] **토큰 CLI 관리**
+- [x] **Token Middleware**: `Authorization: Bearer <token>` 또는 `X-Shield-Token` 헤더
+- [x] **Quota 관리**: 시간당/월간 사용량 추적, 초과 시 거부
+- [x] **토큰 CLI 관리**
   ```
   shield-agent token list
   shield-agent token revoke <id>
@@ -321,14 +321,14 @@ shield-agent logs --last 50 --agent <id> --since 1h --method <name> --format jso
 
 기술 선택: **Embedded SPA** (Go embed + 경량 프레임워크)
 
-- [ ] `/ui` 엔드포인트로 접근
-- [ ] 초기 비밀번호 `admin` → 첫 로그인 시 변경 강제
-- [ ] 페이지:
-  - **Dashboard**: 실시간 요청 수, 에러율, 레이턴시 차트
+- [x] `/ui` 엔드포인트로 접근 (Go embed SPA)
+- [x] 초기 비밀번호 `admin` → 첫 로그인 시 변경 강제
+- [x] 페이지:
+  - **Dashboard**: 실시간 요청 수, 에러율, 레이턴시
   - **Logs**: 필터링 가능한 로그 테이블 (agent, method, status, IP)
-  - **Middleware**: 각 middleware on/off 토글, 설정 편집
-  - **Tokens**: 토큰 목록, 발급, 폐기, 사용량 차트
-  - **Settings**: YAML 설정 편집, 보안 모드 전환
+  - **Middleware**: 각 middleware on/off 토글
+  - **Tokens**: 토큰 목록, 발급, 폐기, 사용량 통계
+  - **Settings**: 미들웨어 설정, 비밀번호 변경
 
 ---
 

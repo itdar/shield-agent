@@ -31,6 +31,7 @@ Go로 작성되었으며, 단일 바이너리로 즉시 사용 가능합니다.
 
 ### 보안
 - **Ed25519 인증** — 암호화 서명 기반 에이전트 신원 검증 (`did:key` + KeyStore)
+- **토큰 기반 접근 제어** — Bearer 토큰 발급/검증, 시간당/월간 quota, 메서드 제한, IP 제한
 - **Guard 미들웨어** — 속도 제한, 요청 크기 제한, IP 차단/허용, brute force 방어, malformed JSON-RPC 감지
 - **A2A 인증** — 에이전트 간 통신 Ed25519 서명 검증 (`X-Agent-ID` / `X-A2A-Signature`)
 - **HTTP API 인증** — 외부 API 호출 서명 검증 (`X-Agent-ID` / `X-Agent-Signature`)
@@ -47,6 +48,8 @@ Go로 작성되었으며, 단일 바이너리로 즉시 사용 가능합니다.
 - **TLS 지원** — `--tls-cert` / `--tls-key`로 HTTPS 프록시
 - **DB 마이그레이션** — 자동 스키마 버전 관리
 - **CI/CD** — GitHub Actions + GoReleaser 자동 빌드/배포
+- **Web UI** — 내장 관리 화면 (`/ui`): 대시보드, 로그, 토큰 관리, 미들웨어 제어
+- **토큰 CLI** — `shield-agent token create/list/revoke/stats`
 
 ## 설치
 
@@ -388,7 +391,7 @@ SQLite (WAL 모드, busy timeout 5초). 기본 경로: `shield-agent.db`
 |-------|------|------|
 | Phase 1 — Core MVP | **완료** | Transport, Auth, Guard, Log, Middleware Chain, CLI |
 | Phase 2 — 배포 & 설치 | **완료** | Docker, Homebrew, GoReleaser, CI/CD, 문서 |
-| Phase 3 — 토큰 & Web UI | 예정 | 토큰 발급/관리/quota, Web UI 대시보드 |
+| Phase 3 — 토큰 & Web UI | **완료** | 토큰 발급/관리/quota, Web UI 대시보드 |
 | Phase 4 — 고도화 | 예정 | Agent 평판 시스템, 고급 보안, 텔레메트리 |
 
 ## 라이선스
