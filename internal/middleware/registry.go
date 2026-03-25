@@ -9,16 +9,18 @@ import (
 	"github.com/itdar/shield-agent/internal/monitor"
 	"github.com/itdar/shield-agent/internal/storage"
 	"github.com/itdar/shield-agent/internal/telemetry"
+	"github.com/itdar/shield-agent/internal/token"
 )
 
 // Dependencies holds shared resources needed by middleware factories.
 type Dependencies struct {
-	DB       *storage.DB
-	Logger   *slog.Logger
-	Metrics  *monitor.Metrics
-	KeyStore auth.KeyStore
-	TelCol   *telemetry.Collector
-	SecMode  string // "open" or "closed"
+	DB         *storage.DB
+	Logger     *slog.Logger
+	Metrics    *monitor.Metrics
+	KeyStore   auth.KeyStore
+	TelCol     *telemetry.Collector
+	SecMode    string // "open" or "closed"
+	TokenStore *token.Store
 }
 
 // BuildChain creates a middleware Chain from config entries and dependencies.
@@ -129,6 +131,12 @@ func createMiddleware(entry config.MiddlewareEntry, deps Dependencies) (Middlewa
 		}
 		mw := NewLogMiddleware(deps.DB, deps.Logger, deps.TelCol, onMsg)
 		return mw, func() { mw.Close() }, nil
+	case "token":
+		if deps.TokenStore == nil {
+			return nil, nil, fmt.Errorf("token middleware requires a token store")
+		}
+		mw := NewTokenMiddleware(deps.TokenStore, deps.Logger)
+		return mw, nil, nil
 	default:
 		return nil, nil, fmt.Errorf("unknown middleware: %q", entry.Name)
 	}

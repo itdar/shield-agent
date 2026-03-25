@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shield Agent - Web UI</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Login Overlay -->
+  <div id="login-overlay" class="login-overlay">
+    <div class="login-card">
+      <h1>Shield Agent</h1>
+      <p>Enter admin password to continue</p>
+      <form id="login-form">
+        <input type="password" id="login-password" placeholder="Password" required autocomplete="current-password">
+        <button type="submit">Login</button>
+        <p id="login-error" class="error" hidden></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- App Shell -->
+  <div id="app" class="app" hidden>
+    <!-- Sidebar -->
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h2>Shield Agent</h2>
+        <button class="menu-toggle" id="menu-close">&times;</button>
+      </div>
+      <ul class="nav-list">
+        <li><a href="#dashboard" class="nav-link active" data-page="dashboard">Dashboard</a></li>
+        <li><a href="#logs" class="nav-link" data-page="logs">Logs</a></li>
+        <li><a href="#tokens" class="nav-link" data-page="tokens">Tokens</a></li>
+        <li><a href="#settings" class="nav-link" data-page="settings">Settings</a></li>
+      </ul>
+      <div class="sidebar-footer">
+        <button id="logout-btn" class="btn-logout">Logout</button>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="topbar">
+        <button class="menu-toggle" id="menu-open">&#9776;</button>
+        <h3 id="page-title">Dashboard</h3>
+      </header>
+      <div id="content" class="content"></div>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

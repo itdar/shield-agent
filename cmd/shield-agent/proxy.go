@@ -13,11 +13,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/itdar/shield-agent/internal/auth"
+	"github.com/itdar/shield-agent/internal/config"
 	"github.com/itdar/shield-agent/internal/middleware"
 	"github.com/itdar/shield-agent/internal/monitor"
 	"github.com/itdar/shield-agent/internal/storage"
 	"github.com/itdar/shield-agent/internal/telemetry"
+	"github.com/itdar/shield-agent/internal/token"
 	"github.com/itdar/shield-agent/internal/transport/proxy"
+	"github.com/itdar/shield-agent/internal/webui"
 )
 
 // buildProxyCmd builds the `shield-agent proxy` sub-command.
@@ -107,14 +110,18 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		logger,
 	)
 
-	// 5. Build middleware chain from config.
+	// 5. Token store.
+	tokenStore := token.NewStore(db.Conn())
+
+	// 6. Build middleware chain from config.
 	deps := middleware.Dependencies{
-		DB:       db,
-		Logger:   logger,
-		Metrics:  metrics,
-		KeyStore: cachedStore,
-		TelCol:   telCol,
-		SecMode:  cfg.Security.Mode,
+		DB:         db,
+		Logger:     logger,
+		Metrics:    metrics,
+		KeyStore:   cachedStore,
+		TelCol:     telCol,
+		SecMode:    cfg.Security.Mode,
+		TokenStore: tokenStore,
 	}
 	chain, closeMiddlewares, err := middleware.BuildChain(cfg.Middlewares, deps)
 	if err != nil {
@@ -168,9 +175,23 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		}
 	}()
 
-	// 6. Start monitoring server.
+	// 6. Start monitoring server with Web UI.
 	monSrv := monitor.New(cfg.Server.MonitorAddr, metrics, logger)
 	monSrv.SetUpstreamURL(upstream)
+
+	webuiAPI := webui.NewAPI(webui.APIConfig{
+		DB:         db,
+		TokenStore: tokenStore,
+		Logger:     logger,
+		GetConfig:  func() config.Config { return cfg },
+		ToggleMW: func(name string, enabled bool) {
+			config.SetMiddlewareEnabled(&cfg, name, enabled)
+		},
+	})
+	monSrv.SetMuxSetup(func(mux *http.ServeMux) {
+		webui.RegisterUI(mux, webuiAPI)
+	})
+
 	monSrv.Start()
 
 	// 7. Run telemetry in background.

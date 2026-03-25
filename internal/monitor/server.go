@@ -78,6 +78,7 @@ type Server struct {
 	upstreamURL atomic.Value // stores string; empty means no upstream check
 	logger      *slog.Logger
 	srv         *http.Server
+	setupMux    func(mux *http.ServeMux) // optional: register extra routes before starting
 }
 
 // New creates a new monitoring Server.
@@ -100,12 +101,21 @@ func (s *Server) SetUpstreamURL(url string) {
 	s.upstreamURL.Store(url)
 }
 
+// SetMuxSetup registers a callback to add extra routes before the server starts.
+func (s *Server) SetMuxSetup(fn func(mux *http.ServeMux)) {
+	s.setupMux = fn
+}
+
 // Start launches the monitoring HTTP server in a background goroutine.
 func (s *Server) Start() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRoot)
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.Handle("/metrics", promhttp.Handler())
+
+	if s.setupMux != nil {
+		s.setupMux(mux)
+	}
 
 	s.srv = &http.Server{
 		Addr:    s.addr,
