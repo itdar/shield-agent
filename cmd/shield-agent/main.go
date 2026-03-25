@@ -45,6 +45,7 @@ func run() error {
 	root := buildRootCmd(flags)
 	root.AddCommand(buildLogsCmd(flags))
 	root.AddCommand(buildProxyCmd(flags))
+	root.AddCommand(buildTokenCmd(flags))
 
 	// Allow unknown flags so that child command flags (e.g. --port 8080)
 	// are not rejected by cobra.
