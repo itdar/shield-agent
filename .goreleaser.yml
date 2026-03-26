@@ -44,7 +44,7 @@ brews:
   - repository:
       owner: itdar
       name: homebrew-tap
-      token: "{{ .Env.GITHUB_TOKEN }}"
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     homepage: "https://github.com/itdar/shield-agent"
     description: "Security middleware proxy for MCP servers and AI agents"
     license: "MIT"
