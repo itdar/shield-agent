@@ -203,9 +203,10 @@ func (a *API) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"total_requests":    totalReqs,
 		"total_requests_1h": totalReqs,
-		"error_rate":        fmt.Sprintf("%.1f%%", errorRate),
-		"avg_latency_ms":    fmt.Sprintf("%.1f", avgLatency),
+		"error_rate":        errorRate / 100, // fraction 0.0-1.0 for JS (* 100)
+		"avg_latency_ms":    avgLatency,
 		"active_tokens":     len(tokens),
 	})
 }
