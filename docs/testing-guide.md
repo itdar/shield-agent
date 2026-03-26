@@ -407,15 +407,183 @@ curl -s http://localhost:9191/healthz | jq .
 
 ---
 
+## 8. 토큰 관리
+
+Phase 3에서 추가된 토큰 기반 접근 제어를 테스트합니다.
+
+### 토큰 생성
+
+```bash
+./shield-agent token create --name "test-agent" --quota-hourly 100 --quota-monthly 10000
+```
+
+출력 예시:
+```
+Token created successfully!
+  ID:    a1b2c3d4e5f6g7h8
+  Token: 4f8a9c2e...  (이 값을 지금 저장하세요. 다시 표시되지 않습니다)
+```
+
+### 토큰 목록 조회
+
+```bash
+./shield-agent token list
+./shield-agent token list --all  # 비활성 토큰 포함
+```
+
+### 토큰으로 요청 보내기
+
+프록시 모드에서 토큰 미들웨어가 활성화된 경우:
+
+```bash
+# Authorization: Bearer 헤더 사용
+curl -X POST http://localhost:8888/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <토큰값>" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+
+# 또는 X-Shield-Token 헤더 사용
+curl -X POST http://localhost:8888/mcp \
+  -H "Content-Type: application/json" \
+  -H "X-Shield-Token: <토큰값>" \
+  -d '{"jsonrpc":"2.0","method":"tools/list","id":1}'
+```
+
+### 토큰 사용량 확인
+
+```bash
+./shield-agent token stats <토큰ID> --since 24h
+```
+
+### 토큰 폐기
+
+```bash
+./shield-agent token revoke <토큰ID>
+```
+
+### 토큰 미들웨어 활성화
+
+`shield-agent.yaml`에 토큰 미들웨어를 추가합니다:
+
+```yaml
+middlewares:
+  - name: auth
+    enabled: true
+  - name: guard
+    enabled: true
+  - name: token
+    enabled: true
+  - name: log
+    enabled: true
+```
+
+---
+
+## 9. Web UI — 관리 화면
+
+shield-agent는 내장 웹 관리 UI를 제공합니다. 프록시 모드로 실행하면 모니터링 서버(기본 `:9090`)에서 접근 가능합니다.
+
+### 접속
+
+```
+http://127.0.0.1:9090/ui
+```
+
+### 로그인
+
+- 기본 비밀번호: `admin`
+- 첫 로그인 시 비밀번호 변경이 요구됩니다
+
+### 페이지 구성
+
+| 페이지 | 기능 |
+|--------|------|
+| **Dashboard** | 최근 1시간 요청 수, 에러율, 평균 레이턴시, 활성 토큰 수 (10초 자동 갱신) |
+| **Logs** | 최근 로그 테이블 (timestamp, direction, method, success, latency, IP, auth) |
+| **Tokens** | 토큰 목록, 새 토큰 발급, 폐기 |
+| **Settings** | 미들웨어 on/off 토글 |
+
+### API 직접 테스트 (curl)
+
+로그인 후 세션 쿠키를 사용합니다:
+
+```bash
+# 로그인
+curl -c cookies.txt -X POST http://127.0.0.1:9090/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"password":"admin"}'
+
+# 대시보드 데이터
+curl -b cookies.txt http://127.0.0.1:9090/api/dashboard | jq .
+
+# 로그 조회
+curl -b cookies.txt "http://127.0.0.1:9090/api/logs?last=10" | jq .
+
+# 토큰 목록
+curl -b cookies.txt http://127.0.0.1:9090/api/tokens | jq .
+
+# 미들웨어 상태
+curl -b cookies.txt http://127.0.0.1:9090/api/middlewares | jq .
+```
+
+---
+
+## 10. Guard 고급 기능
+
+### Brute force 방어 테스트
+
+`shield-agent.yaml`에서 brute force 방어를 활성화합니다:
+
+```yaml
+middlewares:
+  - name: guard
+    enabled: true
+    config:
+      brute_force_max_fails: 3
+```
+
+연속 실패 3회 후 해당 메서드가 10분간 자동 차단됩니다.
+
+### JSON-RPC 검증 테스트
+
+```yaml
+middlewares:
+  - name: guard
+    enabled: true
+    config:
+      validate_jsonrpc: true
+```
+
+잘못된 JSON-RPC 요청을 보내면 거부됩니다:
+
+```bash
+# 빈 메서드 — 거부됨
+curl -X POST http://localhost:8888/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"","id":1}'
+
+# 잘못된 버전 — 거부됨
+curl -X POST http://localhost:8888/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"1.0","method":"test","id":1}'
+```
+
+---
+
 ## 빠른 참조
 
 | 시나리오 | 명령어 |
 |----------|--------|
 | stdio 래핑 | `./shield-agent <command> [args...]` |
 | 프록시 (SSE) | `./shield-agent proxy --listen :8888 --upstream <url> --transport sse` |
-| 프록시 (Streamable HTTP) | `./shield-agent proxy --listen :8888 --upstream <url> --transport streamable-http` |
+| 프록시 (Streamable HTTP) | `./shield-agent proxy --listen :8888 --upstream <url>` |
 | 프록시 (TLS) | `./shield-agent proxy --listen :8888 --upstream <url> --tls-cert cert.pem --tls-key key.pem` |
 | 로그 조회 | `./shield-agent logs --last 10 --format json` |
+| 토큰 생성 | `./shield-agent token create --name agent-1 --quota-hourly 100` |
+| 토큰 목록 | `./shield-agent token list` |
+| 토큰 폐기 | `./shield-agent token revoke <id>` |
+| 토큰 통계 | `./shield-agent token stats <id> --since 24h` |
+| Web UI | `http://127.0.0.1:9090/ui` (기본 비밀번호: admin) |
 | 헬스 체크 | `curl http://127.0.0.1:9090/healthz` |
 | Prometheus 메트릭 | `curl http://127.0.0.1:9090/metrics` |
 | 설정 리로드 | `kill -SIGHUP $(pgrep -f "shield-agent")` |
