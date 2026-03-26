@@ -390,9 +390,9 @@ Use the Part B templates for each classified directory.
 1. Replace all `{placeholder}` with actual values. Remove comments from final output.
 2. Fill in context by analyzing files.
 3. **Do not write inferable content** — prohibited:
-   - Directory structure descriptions, general language syntax, README contents, package official docs
+    - Directory structure descriptions, general language syntax, README contents, package official docs
 4. **Only write non-inferable content:**
-   - Team conventions, prohibitions, protection rules, custom commands, hidden dependencies, PR/commit formats
+    - Team conventions, prohibitions, protection rules, custom commands, hidden dependencies, PR/commit formats
 5. **Record context file paths generated in Step 3 in the `Context Files` section.**
 6. Omit sections that are not applicable.
 
@@ -879,24 +879,144 @@ When changing code in this directory:
 
 ### D-3. Tool Compatibility
 
-| Tool | AGENTS.md Recognition | Own File |
-|---|---|---|
-| Claude Code | O (fallback) | `CLAUDE.md` |
-| OpenAI Codex | O (primary) | - |
-| GitHub Copilot | △ | `copilot-instructions.md` |
-| Cursor | △ | `.cursor/rules/*.mdc` |
-| Aider | O | `.aider.conf.yml` |
+| Tool | AGENTS.md Auto-Read | Session Start File | Bootstrap Needed |
+|---|---|---|---|
+| Claude Code | △ (fallback) | `CLAUDE.md` | Yes — add directive in CLAUDE.md |
+| OpenAI Codex | O (primary) | `AGENTS.md` | No |
+| GitHub Copilot | X | `.github/copilot-instructions.md` | Yes — sync or reference |
+| Cursor | X | `.cursor/rules/*.mdc` | Yes — sync or reference |
+| Windsurf | X | `.windsurfrules` | Yes — sync or reference |
+| Aider | O | `.aider.conf.yml` | No |
 
-Synchronization:
+#### Per-Vendor Bootstrap: Making Each Tool Read AGENTS.md
+
+Each vendor auto-loads only its own config file at session start. AGENTS.md is **not universally auto-loaded**.
+To ensure any AI tool reads AGENTS.md, add a bootstrap directive in that vendor's auto-loaded file.
+
+**Claude Code** — `CLAUDE.md`:
+```markdown
+## Session Start
+At the start of every session, read `AGENTS.md` (project root) and follow its instructions.
+If `.ai-agents/context/` exists, load the files listed in the Context Files section of AGENTS.md.
+```
+
+**Cursor** — `.cursor/rules/agents-bootstrap.mdc`:
+```markdown
+---
+description: Bootstrap AGENTS.md for every session
+globs: "**/*"
+alwaysApply: true
+---
+At the start of every session, read `AGENTS.md` (project root) and follow its instructions.
+If `.ai-agents/context/` exists, load the files listed in the Context Files section of AGENTS.md.
+```
+
+**GitHub Copilot** — `.github/copilot-instructions.md`:
+```markdown
+At the start of every session, read `AGENTS.md` (project root) and follow its instructions.
+If `.ai-agents/context/` exists, load the files listed in the Context Files section of AGENTS.md.
+```
+
+**Windsurf** — `.windsurfrules`:
+```markdown
+At the start of every session, read `AGENTS.md` (project root) and follow its instructions.
+If `.ai-agents/context/` exists, load the files listed in the Context Files section of AGENTS.md.
+```
+
+**OpenAI Codex** — No bootstrap needed. Codex reads `AGENTS.md` as its primary instruction file.
+
+**Aider** — `.aider.conf.yml`:
+```yaml
+read: ["AGENTS.md"]
+```
+
+#### Automated Bootstrap Generator
+
+**원칙: 이미 사용 중인 벤더만 부트스트랩을 생성한다.** 벤더 설정 파일/디렉토리가 이미 존재하는 경우에만 부트스트랩 지시문을 추가한다. 사용하지 않는 벤더의 파일을 임의로 생성하지 않는다.
 
 ```bash
 # scripts/sync-ai-rules.sh
 AGENTS="AGENTS.md"
-mkdir -p .cursor/rules .github
-cp "$AGENTS" .github/copilot-instructions.md
-printf -- '---\ndescription: Project guidelines\nglobs: "**/*"\n---\n' > .cursor/rules/project.mdc
-cat "$AGENTS" >> .cursor/rules/project.mdc
+BOOTSTRAP_MSG="At the start of every session, read \`AGENTS.md\` (project root) and follow its instructions.
+If \`.ai-agents/context/\` exists, load the files listed in the Context Files section of AGENTS.md."
+
+GENERATED=0
+
+# Claude Code — only if CLAUDE.md or .claude/ already exists
+if [ -f "CLAUDE.md" ] || [ -d ".claude" ]; then
+  if [ -f "CLAUDE.md" ]; then
+    grep -q "read.*AGENTS.md" CLAUDE.md || printf '\n## Session Start\n%s\n' "$BOOTSTRAP_MSG" >> CLAUDE.md
+  else
+    printf '## Session Start\n%s\n' "$BOOTSTRAP_MSG" > CLAUDE.md
+  fi
+  echo "  ✓ Claude Code: CLAUDE.md updated"
+  GENERATED=$((GENERATED + 1))
+fi
+
+# Cursor — only if .cursor/ already exists
+if [ -d ".cursor" ]; then
+  mkdir -p .cursor/rules
+  printf -- '---\ndescription: Bootstrap AGENTS.md\nglobs: "**/*"\nalwaysApply: true\n---\n%s\n' "$BOOTSTRAP_MSG" > .cursor/rules/agents-bootstrap.mdc
+  echo "  ✓ Cursor: .cursor/rules/agents-bootstrap.mdc created"
+  GENERATED=$((GENERATED + 1))
+fi
+
+# GitHub Copilot — only if .github/ already exists
+if [ -d ".github" ]; then
+  printf '%s\n' "$BOOTSTRAP_MSG" > .github/copilot-instructions.md
+  echo "  ✓ GitHub Copilot: .github/copilot-instructions.md created"
+  GENERATED=$((GENERATED + 1))
+fi
+
+# Windsurf — only if .windsurfrules already exists
+if [ -f ".windsurfrules" ]; then
+  grep -q "read.*AGENTS.md" .windsurfrules || printf '\n%s\n' "$BOOTSTRAP_MSG" >> .windsurfrules
+  echo "  ✓ Windsurf: .windsurfrules updated"
+  GENERATED=$((GENERATED + 1))
+fi
+
+# Aider — only if .aider.conf.yml already exists
+if [ -f ".aider.conf.yml" ]; then
+  grep -q "AGENTS.md" .aider.conf.yml || printf 'read: ["AGENTS.md"]\n' >> .aider.conf.yml
+  echo "  ✓ Aider: .aider.conf.yml updated"
+  GENERATED=$((GENERATED + 1))
+fi
+
+if [ "$GENERATED" -eq 0 ]; then
+  echo "No AI tool config files detected. Bootstrap skipped."
+  echo "Manually create the config file for your tool first, then re-run this script."
+else
+  echo "Bootstrap complete: $GENERATED tool(s) configured to read AGENTS.md."
+fi
 ```
+
+**판단 기준:**
+
+| 감지 조건 | 부트스트랩 대상 |
+|---|---|
+| `CLAUDE.md` 또는 `.claude/` 존재 | Claude Code |
+| `.cursor/` 디렉토리 존재 | Cursor |
+| `.github/` 디렉토리 존재 | GitHub Copilot |
+| `.windsurfrules` 파일 존재 | Windsurf |
+| `.aider.conf.yml` 파일 존재 | Aider |
+| `AGENTS.md`만 존재 (위 해당 없음) | Codex (부트스트랩 불필요) |
+
+#### Why Bootstrap Is Required
+
+```
+Problem:
+  Claude Code starts → reads CLAUDE.md only → doesn't know AGENTS.md exists
+  Cursor starts     → reads .cursor/rules/ only → doesn't know AGENTS.md exists
+
+Solution:
+  Claude Code starts → reads CLAUDE.md → sees "read AGENTS.md" → reads AGENTS.md ✓
+  Cursor starts     → reads .mdc rules → sees "read AGENTS.md" → reads AGENTS.md ✓
+  Codex starts      → reads AGENTS.md directly ✓ (no bootstrap needed)
+```
+
+The bootstrap directive is a one-line bridge: it tells each vendor's auto-loaded config
+to chain-load the vendor-neutral AGENTS.md. This keeps all project knowledge in one place
+while remaining compatible with every tool.
 
 ### D-4. AGENTS.md Search Priority
 
