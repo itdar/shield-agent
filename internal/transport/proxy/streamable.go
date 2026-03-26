@@ -90,15 +90,9 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Determine upstream URL.
-	// Build upstream URL based on the request path.
-	reqPath := r.URL.Path
-	if reqPath == "/" || reqPath == "" {
-		reqPath = "/mcp"
-	}
-	upstreamURL := p.upstream + reqPath
-	if r.URL.RawQuery != "" {
-		upstreamURL += "?" + r.URL.RawQuery
-	}
+	// If the upstream already includes a path (e.g. https://host/mcp), use it as-is.
+	// Only append the request path when the upstream has no path component.
+	upstreamURL := buildUpstreamURL(p.upstream, r.URL.Path, r.URL.RawQuery)
 
 	upReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, upstreamURL, bytes.NewReader(body))
 	if err != nil {
@@ -157,14 +151,7 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 // proxyRaw forwards methods like GET/DELETE directly to upstream without middleware.
 func (p *StreamableProxy) proxyRaw(w http.ResponseWriter, r *http.Request) {
-	reqPath := r.URL.Path
-	if reqPath == "/" || reqPath == "" {
-		reqPath = "/mcp"
-	}
-	upstreamURL := p.upstream + reqPath
-	if r.URL.RawQuery != "" {
-		upstreamURL += "?" + r.URL.RawQuery
-	}
+	upstreamURL := buildUpstreamURL(p.upstream, r.URL.Path, r.URL.RawQuery)
 
 	upReq, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, r.Body)
 	if err != nil {

@@ -20,8 +20,6 @@ claude --dangerously-skip-permissions --model claude-opus-4-6 \
 
 # 2. 생성된 에이전트로 작업 시작
 ./ai-agency.sh
-
-# 3. 이후 세션부터는 자동으로 즉시 작업 가능!
 ```
 
 > 이 문서는 **사람이 읽고 이해하기 위한** 문서입니다.

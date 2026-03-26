@@ -4,10 +4,39 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/url"
+	"strings"
 
 	"github.com/itdar/shield-agent/internal/jsonrpc"
 	"github.com/itdar/shield-agent/internal/middleware"
 )
+
+// buildUpstreamURL constructs the upstream URL by respecting any path already
+// present in the configured upstream base URL. If the upstream has no path
+// (e.g. "http://localhost:8000"), the request path is appended (defaulting to
+// "/mcp"). If the upstream already includes a path (e.g.
+// "https://host/mcp"), it is used as-is to avoid double-path issues like
+// "/mcp/mcp".
+func buildUpstreamURL(upstream, reqPath, rawQuery string) string {
+	u, err := url.Parse(upstream)
+	if err != nil || (u.Path == "" || u.Path == "/") {
+		// Upstream has no meaningful path — append request path.
+		if reqPath == "/" || reqPath == "" {
+			reqPath = "/mcp"
+		}
+		result := strings.TrimRight(upstream, "/") + reqPath
+		if rawQuery != "" {
+			result += "?" + rawQuery
+		}
+		return result
+	}
+	// Upstream already has a path — use it as-is.
+	result := upstream
+	if rawQuery != "" {
+		result += "?" + rawQuery
+	}
+	return result
+}
 
 // applyRequest parses body as a JSON-RPC request and passes it through the middleware chain.
 // Returns (modified body, nil) on success, or (error payload, error) if blocked.

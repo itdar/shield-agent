@@ -65,7 +65,7 @@ func (p *SSEProxy) handleSSE(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Connect to upstream SSE.
-	upSSEURL := p.upstream + "/sse"
+	upSSEURL := buildUpstreamURL(p.upstream, "/sse", "")
 	upReq, err := http.NewRequestWithContext(ctx, http.MethodGet, upSSEURL, nil)
 	if err != nil {
 		p.logger.Error("sse: upstream request creation failed", slog.String("error", err.Error()))
