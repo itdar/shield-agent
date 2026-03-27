@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -249,7 +251,7 @@ func (a *API) handleLogs(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleTokens(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		tokens, err := a.tokenStore.List(false)
+		tokens, err := a.tokenStore.List(true)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
@@ -282,7 +284,7 @@ func (a *API) handleTokens(w http.ResponseWriter, r *http.Request) {
 
 		var expiresAt *time.Time
 		if body.ExpiresIn != "" {
-			if d, err := time.ParseDuration(body.ExpiresIn); err == nil {
+			if d, err := parseDuration(body.ExpiresIn); err == nil {
 				t := time.Now().Add(d)
 				expiresAt = &t
 			}
@@ -429,4 +431,25 @@ func generateSessionID() string {
 	b := make([]byte, 32)
 	rand.Read(b) //nolint:errcheck
 	return hex.EncodeToString(b)
+}
+
+var durationRe = regexp.MustCompile(`(?i)^(\d+)\s*([dhms])$`)
+
+// parseDuration parses duration strings like "24h", "7d", "30m", "60s" (case-insensitive).
+func parseDuration(s string) (time.Duration, error) {
+	m := durationRe.FindStringSubmatch(strings.TrimSpace(s))
+	if m != nil {
+		n, _ := strconv.Atoi(m[1])
+		switch strings.ToLower(m[2]) {
+		case "d":
+			return time.Duration(n) * 24 * time.Hour, nil
+		case "h":
+			return time.Duration(n) * time.Hour, nil
+		case "m":
+			return time.Duration(n) * time.Minute, nil
+		case "s":
+			return time.Duration(n) * time.Second, nil
+		}
+	}
+	return time.ParseDuration(s)
 }

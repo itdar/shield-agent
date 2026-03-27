@@ -311,7 +311,7 @@
           if (!name) return;
           var body = { name: name };
           var exp = expiryInput.value.trim();
-          if (exp) body.expiry = exp;
+          if (exp) body.expires_in = exp;
 
           fetchAPI("/tokens", { method: "POST", body: JSON.stringify(body) })
             .then(function (res) {
@@ -351,7 +351,7 @@
         var tbody = el("tbody");
         tokens.forEach(function (tok) {
           var id = tok.id || tok.ID || "--";
-          var revoked = tok.revoked || tok.disabled;
+          var revoked = tok.active === false;
 
           var revokeBtn = el(
             "button",
