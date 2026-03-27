@@ -16,16 +16,16 @@ type DB struct {
 
 // ActionLog represents a single intercepted message log entry.
 type ActionLog struct {
-	Timestamp   time.Time
-	AgentIDHash string
-	Method      string
-	Direction   string
-	Success     bool
-	LatencyMs   float64
-	PayloadSize int
-	AuthStatus  string
-	ErrorCode   string
-	IPAddress   string
+	Timestamp   time.Time `json:"timestamp"`
+	AgentIDHash string    `json:"agent_id_hash"`
+	Method      string    `json:"method"`
+	Direction   string    `json:"direction"`
+	Success     bool      `json:"success"`
+	LatencyMs   float64   `json:"latency_ms"`
+	PayloadSize int       `json:"payload_size"`
+	AuthStatus  string    `json:"auth"`
+	ErrorCode   string    `json:"error_code"`
+	IPAddress   string    `json:"ip"`
 }
 
 // migration represents a single schema migration step.
