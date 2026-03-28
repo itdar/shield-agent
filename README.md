@@ -1,115 +1,170 @@
 # shield-agent
 
-AI Agent 시대의 보안 미들웨어. Agent와 Server 사이에 투명하게 위치하여 인증, 방어, 로깅, 모니터링을 제공합니다.
+AI Agent 시대의 보안 미들웨어.
+Agent와 Server 사이에 투명하게 위치하여 **인증, 방어, 로깅, 모니터링**을 제공합니다.
 
-Go로 작성되었으며, 단일 바이너리로 즉시 사용 가능합니다.
+Go로 작성된 **~10MB 단일 바이너리**. 설치 30초, 설정 1분.
 
 ```
-+------------------+         +----------------------------+         +------------------+
-|                  |         |       shield-agent         |         |                  |
-|   AI Agent /     | ------> | +------------------------+ | ------> | Target Server    |
-|   MCP Client /   |         | | Middleware Chain       | |         | (MCP / A2A /     |
-|   A2A Agent      | <------ | | [auth] [guard] [log]   | | <------ |  REST API)       |
-+------------------+         | +------------------------+ |         +------------------+
-                             |   monitor :9090 /metrics   |
-                             +----------------------------+
+┌──────────┐         ┌──────────────────────────┐         ┌──────────────┐
+│ AI Agent │ ──────> │      shield-agent        │ ──────> │ Target Server│
+│ MCP/A2A  │ <────── │  [auth] [guard] [log]    │ <────── │ MCP/A2A/API  │
+└──────────┘         │  monitor :9090 /metrics  │         └──────────────┘
+                     │  Web UI  :9090 /ui       │
+                     └──────────────────────────┘
 ```
 
-## 보호 대상
+---
 
-| 케이스 | 설명 | 모드 |
-|--------|------|------|
-| Agent → MCP Server | stdio 래핑 / HTTP 리버스 프록시 | stdio, proxy |
-| Agent → Agent (A2A) | Google A2A 프로토콜 에이전트 간 통신 | HTTP 미들웨어 |
-| Agent → API Server | 일반 HTTP REST/GraphQL 호출 | HTTP 미들웨어 |
+## 목차
 
-## 주요 기능
+- [어떤 상황에서 쓰나요?](#어떤-상황에서-쓰나요)
+- [설치](#설치)
+- [사용 케이스별 빠른 시작](#사용-케이스별-빠른-시작)
+- [인증 방식 선택 가이드](#인증-방식-선택-가이드)
+- [배포 패턴](#배포-패턴)
+- [설정 레퍼런스](#설정-레퍼런스)
+- [모니터링](#모니터링)
+- [Web UI](#web-ui)
+- [로드맵](#로드맵)
 
-### 동작 모드
-- **stdio 모드** — MCP 서버를 자식 프로세스로 래핑, stdin/stdout 인터셉트
-- **proxy 모드** — HTTP 리버스 프록시 (SSE / Streamable HTTP / TLS)
+---
 
-### 보안
-- **Ed25519 인증** — 암호화 서명 기반 에이전트 신원 검증 (`did:key` + KeyStore)
-- **토큰 기반 접근 제어** — Bearer 토큰 발급/검증, 시간당/월간 quota, 메서드 제한, IP 제한
-- **Guard 미들웨어** — 속도 제한, 요청 크기 제한, IP 차단/허용, brute force 방어, malformed JSON-RPC 감지
-- **A2A 인증** — 에이전트 간 통신 Ed25519 서명 검증 (`X-Agent-ID` / `X-A2A-Signature`)
-- **HTTP API 인증** — 외부 API 호출 서명 검증 (`X-Agent-ID` / `X-Agent-Signature`)
-- **프라이버시 우선 텔레메트리** — 차등 프라이버시(differential privacy) 적용, 기본 비활성화
+## 어떤 상황에서 쓰나요?
 
-### 관측성 (Observability)
-- **감사 로깅** — 모든 요청/응답을 SQLite에 비동기 저장 (IP 주소 포함)
-- **Prometheus 메트릭** — 내장 `/metrics` 엔드포인트
-- **헬스 체크** — `/healthz` (자식 프로세스 / 업스트림 상태 확인)
-- **로그 조회 CLI** — `shield-agent logs` 명령으로 필터링/검색
+| 상황 | shield-agent가 해주는 것 |
+|------|------------------------|
+| MCP 서버를 외부에 공개하는데 아무나 호출하면 안 됨 | Ed25519 서명 / 토큰 기반 인증 |
+| 에이전트가 API를 너무 많이 호출함 | Rate limit + 시간당/월간 쿼터 |
+| 누가 언제 뭘 호출했는지 기록이 필요함 | SQLite 감사 로그 + Prometheus 메트릭 |
+| 특정 IP에서 오는 요청을 차단하고 싶음 | IP blocklist/allowlist |
+| 여러 MCP 서버를 하나의 엔드포인트로 묶고 싶음 | Gateway 모드 (Host/Path 기반 라우팅) |
+| Web UI로 편하게 관리하고 싶음 | 내장 대시보드 `/ui` |
 
-### 운영
-- **동적 미들웨어 체인** — YAML 설정, CLI 오버라이드, SIGHUP 핫 리로드
-- **TLS 지원** — `--tls-cert` / `--tls-key`로 HTTPS 프록시
-- **DB 마이그레이션** — 자동 스키마 버전 관리
-- **CI/CD** — GitHub Actions + GoReleaser 자동 빌드/배포
-- **Web UI** — 내장 관리 화면 (`/ui`): 대시보드, 로그, 토큰 관리, 미들웨어 제어
-- **토큰 CLI** — `shield-agent token create/list/revoke/stats`
+### 보호 대상
+
+| 통신 경로 | 프로토콜 | 모드 |
+|----------|---------|------|
+| Agent → MCP Server | JSON-RPC (stdio / SSE / Streamable HTTP) | stdio, proxy |
+| Agent → Agent (A2A) | Google A2A 프로토콜 | HTTP 미들웨어 |
+| Agent → API Server | REST / GraphQL | HTTP 미들웨어 |
+
+---
 
 ## 설치
 
-### Homebrew (macOS / Linux)
-
 ```bash
+# Homebrew (macOS / Linux)
 brew tap itdar/tap && brew install shield-agent
-```
 
-### curl 설치 스크립트
-
-```bash
+# curl 설치 스크립트
 curl -sSL https://raw.githubusercontent.com/itdar/shield-agent/main/scripts/install.sh | sh
-```
 
-### Go install
-
-```bash
+# Go install
 go install github.com/itdar/shield-agent/cmd/shield-agent@latest
-```
 
-### Docker
-
-```bash
+# Docker
 docker pull ghcr.io/itdar/shield-agent:latest
-```
 
-### 소스에서 빌드
-
-```bash
+# 소스 빌드
 git clone https://github.com/itdar/shield-agent.git
-cd shield-agent
-go build -o shield-agent ./cmd/shield-agent
+cd shield-agent && go build -o shield-agent ./cmd/shield-agent
 ```
 
-## 빠른 시작
+---
 
-### stdio 모드 — MCP 서버 프로세스 래핑
+## 사용 케이스별 빠른 시작
+
+### 케이스 1: 로컬 MCP 서버 보호 (stdio 모드)
+
+> Python/Node.js MCP 서버를 감싸서 인증과 로깅을 추가하고 싶을 때
 
 ```bash
-shield-agent python server.py
+# 가장 간단한 사용법 — MCP 서버 프로세스를 감싸기만 하면 됨
+shield-agent python my_mcp_server.py
+
+# verbose 모드로 디버깅
 shield-agent --verbose node server.js --port 8080
 ```
 
-shield-agent는 MCP 서버를 자식 프로세스로 실행하여, 미들웨어 체인을 통해 stdin/stdout을 파이핑하고 stderr는 그대로 통과시킵니다.
+**동작 원리:**
+```
+MCP Client ──stdin──> shield-agent ──stdin──> MCP Server (child process)
+MCP Client <─stdout── shield-agent <─stdout── MCP Server
+                          │
+                     미들웨어 체인
+                   [auth] [guard] [log]
+```
 
-### proxy 모드 — HTTP 리버스 프록시
+- shield-agent가 MCP 서버를 자식 프로세스로 실행
+- stdin/stdout을 가로채서 미들웨어 체인 적용
+- stderr는 그대로 통과
+- SIGINT/SIGTERM 자동 전달, 종료 코드 전파
+
+### 케이스 2: 원격 MCP 서버 앞에 프록시 (proxy 모드)
+
+> 이미 돌아가고 있는 MCP 서버 앞에 보안 레이어를 추가하고 싶을 때
 
 ```bash
-# Streamable HTTP (기본값)
+# Streamable HTTP (기본)
 shield-agent proxy --listen :8888 --upstream http://localhost:8000
 
 # SSE 전송 방식
 shield-agent proxy --listen :8888 --upstream http://localhost:8000 --transport sse
 
-# TLS를 사용한 HTTPS
-shield-agent proxy --listen :8888 --upstream http://localhost:8000 --tls-cert cert.pem --tls-key key.pem
+# HTTPS
+shield-agent proxy --listen :8888 --upstream http://localhost:8000 \
+  --tls-cert cert.pem --tls-key key.pem
 ```
 
-### Docker Compose
+**동작 원리:**
+```
+MCP Client ──HTTP──> shield-agent :8888 ──HTTP──> MCP Server :8000
+                          │
+                     미들웨어 체인
+                     모니터링 :9090
+```
+
+### 케이스 3: 여러 서버를 하나의 Gateway로 (Gateway 모드)
+
+> 여러 MCP/API 서버들을 하나의 shield-agent 엔드포인트 뒤에 두고 싶을 때
+
+`shield-agent.yaml`:
+```yaml
+upstreams:
+  - name: mcp-server-a
+    url: http://10.0.1.1:8000
+    match:
+      host: mcp-a.example.com       # Host 헤더 기반 라우팅
+    transport: sse
+
+  - name: api-server-b
+    url: http://10.0.2.1:3000
+    match:
+      path_prefix: /api-b           # Path 기반 라우팅
+      strip_prefix: true
+
+  - name: default-mcp
+    url: http://10.0.3.1:8000       # 매칭 안 되면 여기로 (fallback)
+```
+
+```bash
+shield-agent proxy --listen :8888
+```
+
+**동작 원리:**
+```
+Agent A ──mcp-a.example.com──> shield-agent :8888 ──> MCP Server A
+Agent B ──/api-b/v1/data─────> shield-agent :8888 ──> API Server B (/v1/data)
+Agent C ──기타 요청──────────> shield-agent :8888 ──> Default MCP
+```
+
+- Host 헤더 또는 URL path prefix로 라우팅
+- 매칭 우선순위: Host+Path > Host만 > Path만 > fallback
+- `strip_prefix: true`면 upstream에는 prefix 제거 후 전달
+- Web UI (`/ui`)에서 upstream 동적 추가/삭제 가능
+
+### 케이스 4: Docker Compose로 배포
 
 ```yaml
 services:
@@ -122,108 +177,180 @@ services:
     volumes:
       - ./shield-agent.yaml:/shield-agent.yaml:ro
       - ./keys.yaml:/keys.yaml:ro
+      - shield-data:/data
+    environment:
+      - SHIELD_AGENT_DB_PATH=/data/shield-agent.db
+
   mcp-server:
     image: your-mcp-server:latest
+
+volumes:
+  shield-data:
 ```
 
-## 동작 모드
+### 케이스 5: 토큰으로 에이전트 접근 제어
 
-### stdio 모드
+> 외부 에이전트에게 API 키처럼 토큰을 발급하고, 쿼터를 관리하고 싶을 때
 
-```
-shield-agent [flags] <command> [args...]
-```
+```bash
+# 토큰 발급
+shield-agent token create --name "partner-agent" --quota-hourly 1000
+# → Token: a3f8c1...  (이 값은 한 번만 보여짐, 안전하게 보관)
 
-```
-+------------+    stdin     +----------------+    stdin     +-------------+
-|            | -----------> |                | -----------> |             |
-| MCP Client |              |  shield-agent  |              | MCP Server  |
-|            | <----------- | (middleware)   | <----------- | (child proc)|
-+------------+    stdout    +----------------+    stdout    +-------------+
-                                  |    ^
-                             stderr passes through
-                             without interception
-```
+# 토큰 목록 확인
+shield-agent token list
 
-- 자식 프로세스를 래핑하여 JSON-RPC 파이프라인으로서 stdin/stdout을 가로챔
-- SIGINT/SIGTERM을 자식 프로세스에 전달
-- 자식 프로세스의 종료 코드 전파
-- SIGKILL 전 5초 graceful shutdown 타임아웃
-- stderr는 가로채지 않고 그대로 통과
+# 사용량 확인
+shield-agent token stats <token-id> --since 24h
 
-### Proxy 모드
-
-```
-shield-agent proxy --listen :8888 --upstream <url> --transport <sse|streamable-http>
+# 토큰 폐기 (즉시 효력)
+shield-agent token revoke <token-id>
 ```
 
+에이전트는 요청 시 헤더에 토큰 포함:
 ```
-+------------+   HTTP/HTTPS   +-------------------+   HTTP   +-------------+
-|            | -------------> |                   | -------> |             |
-| MCP Client |                |  shield-agent     |          | MCP Server  |
-|            | <------------- |  :8888 (proxy)    | <------- | (upstream)  |
-+------------+                +-------------------+          +-------------+
-                                      |
-                               monitor :9090
-                               /healthz /metrics
+Authorization: Bearer a3f8c1...
 ```
 
-| Flag | 기본값 | 설명 |
-|------|--------|------|
-| `--listen` | `:8888` | 수신 대기 주소 |
-| `--upstream` | (필수) | 업스트림 서버 기본 URL |
-| `--transport` | `streamable-http` | `sse` 또는 `streamable-http` |
-| `--tls-cert` | — | TLS 인증서 파일 경로 |
-| `--tls-key` | — | TLS 키 파일 경로 |
+---
 
-#### SSE 전송 방식
+## 인증 방식 선택 가이드
 
-| 엔드포인트 | 설명 |
-|-----------|------|
-| `GET /sse` | 업스트림 SSE에 연결하고 이벤트를 릴레이 |
-| `POST /messages?sessionId=<id>` | 미들웨어 적용 후 업스트림으로 전달 |
-
-#### Streamable HTTP 전송 방식
-
-| Method | Path | 설명 |
-|--------|------|------|
-| `POST` | `/mcp` 또는 `/` | 미들웨어 적용 후 업스트림으로 전달 |
-| `GET` | `/mcp` | 세션 SSE 스트림 열기 |
-| `DELETE` | `/mcp` | 세션 종료 |
-
-## 미들웨어
-
-### 파이프라인
-
-모든 모드에서 동일한 설정 가능한 미들웨어 체인을 사용합니다. 기본 순서: **auth → guard → log**
+shield-agent는 **3가지 인증 방식**을 지원합니다. 상황에 맞게 선택하세요:
 
 ```
-Request 흐름:
-  클라이언트 요청
-       |
-       v
-  [auth] ----실패----> JSON-RPC 에러 응답
-       |
-       v
-  [guard] ---실패----> JSON-RPC 에러 응답
-       |
-       v
-  [log] (요청 기록)
-       |
-       v
-  업스트림 서버로 전달
+┌─────────────────────────────────────────────────────────────────┐
+│ Ed25519 + keys.yaml    — 고보안, 소수 에이전트                    │
+│ Ed25519 + DID          — 오픈 생태계, 사전 등록 불필요             │
+│ Bearer Token           — 간편, API 키처럼, 쿼터 관리 가능          │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-```go
-type Middleware interface {
-    ProcessRequest(ctx context.Context, req *Request) (*Request, error)
-    ProcessResponse(ctx context.Context, resp *Response) (*Response, error)
+| | Ed25519 + keys.yaml | Ed25519 + DID | Bearer Token |
+|---|---|---|---|
+| **누가 키를 만드나** | 에이전트가 생성, 관리자가 등록 | 에이전트가 생성, 등록 불필요 | 관리자가 발급 |
+| **사전 등록** | 필요 (keys.yaml 또는 Web UI) | 불필요 | 토큰 전달 필요 |
+| **요청마다 서명** | O | O | X |
+| **토큰 탈취 위험** | 개인키 탈취 필요 (어려움) | 개인키 탈취 필요 | 토큰 탈취하면 끝 |
+| **쿼터/만료** | X | X | O (시간당/월간) |
+| **즉시 폐기** | keys.yaml에서 삭제 | blocklist에 추가 | `token revoke` 즉시 |
+| **추천 상황** | 내부 에이전트 5~10개 | 불특정 다수, 오픈 생태계 | 외부 파트너, API 키처럼 |
+
+### keys.yaml 등록 방식
+
+```yaml
+# keys.yaml
+keys:
+  - id: "agent-1"
+    key: "base64로인코딩된Ed25519공개키"
+```
+
+에이전트 요청 시 JSON-RPC params에 포함:
+```json
+{
+  "method": "tools/list",
+  "params": {
+    "_mcp_agent_id": "agent-1",
+    "_mcp_signature": "hex인코딩된서명값"
+  }
 }
 ```
 
-### 동적 미들웨어 체인
+### Web UI로 키 등록 (keys.yaml 대신)
 
-YAML `middlewares` 섹션으로 설정. CLI 플래그로 개별 토글 가능. SIGHUP으로 런타임 리로드.
+Web UI `/ui`에서 **Agent Keys** 메뉴로 공개키 등록/삭제 가능.
+keys.yaml과 DB 양쪽 모두에서 키를 찾으므로, 어느 쪽에 등록해도 동작합니다.
+
+### DID 방식 (사전 등록 불필요)
+
+에이전트가 `did:key:z6Mk...` 형식의 ID를 사용하면 ID 자체에서 공개키를 추출합니다.
+keys.yaml 등록이 필요 없어서 대규모 에이전트 환경에 적합합니다.
+
+### 보안 모드
+
+| 모드 | 동작 |
+|------|------|
+| `open` (기본) | 서명 없어도 통과, 경고만 로깅 |
+| `verified` | 유효한 서명 필수, 미등록 DID도 OK (단, rate limit 차등 가능) |
+| `closed` | 등록된 에이전트만 접근 가능 |
+
+```yaml
+# shield-agent.yaml
+security:
+  mode: verified
+  did_blocklist:            # 악의적 DID만 차단 (allowlist 아님)
+    - "did:key:z6Mk..."
+```
+
+---
+
+## 배포 패턴
+
+### 패턴 1: 사이드카 (서버마다 1개)
+
+```
+[Agent] → [shield-agent :8881] → [MCP Server A]
+[Agent] → [shield-agent :8882] → [MCP Server B]
+```
+
+- 가장 단순한 구조
+- 서비스 2~3개일 때 추천
+- 각 shield-agent가 독립적으로 인증/로깅
+
+### 패턴 2: Gateway (중앙 1개)
+
+```
+[Agent A] ──> [shield-agent :8888] ──> [MCP Server A]
+[Agent B] ──>       (gateway)     ──> [API Server B]
+```
+
+- 서비스 5개 이상일 때 추천
+- 인증/토큰/로그를 한 곳에서 관리
+- `upstreams` 설정으로 Host/Path 라우팅
+
+### 패턴 3: nginx + shield-agent
+
+```
+[Agent] → [nginx (TLS)] → [shield-agent :8888 (HTTP)] → [upstream]
+```
+
+- nginx에서 TLS termination 처리
+- shield-agent는 HTTP로만 동작
+- `--tls-cert/--tls-key` 설정 불필요
+
+### 모니터링 통합 (사이드카에서도 중앙 관측)
+
+```
+[shield-agent A :9090/metrics] ──┐
+[shield-agent B :9091/metrics] ──┼── Prometheus ──> Grafana
+[shield-agent C :9092/metrics] ──┘
+```
+
+Prometheus가 각 shield-agent의 `/metrics`를 scrape하면
+사이드카 구조에서도 전체 서비스의 요청 수/에러율/레이턴시를 중앙에서 볼 수 있습니다.
+
+---
+
+## 설정 레퍼런스
+
+**우선순위:** CLI 플래그 > 환경 변수 (`SHIELD_AGENT_*`) > YAML 설정 > 기본값
+
+`shield-agent.example.yaml`을 `shield-agent.yaml`로 복사하여 시작하세요.
+
+### 주요 설정
+
+| 설정 | 기본값 | 환경 변수 | 설명 |
+|------|--------|-----------|------|
+| `security.mode` | `open` | `SHIELD_AGENT_SECURITY_MODE` | `open` / `verified` / `closed` |
+| `security.key_store_path` | `keys.yaml` | `SHIELD_AGENT_KEY_STORE_PATH` | 공개키 파일 경로 |
+| `security.did_blocklist` | `[]` | — | 차단할 DID 목록 |
+| `storage.db_path` | `shield-agent.db` | `SHIELD_AGENT_DB_PATH` | SQLite DB 경로 |
+| `storage.retention_days` | `30` | `SHIELD_AGENT_RETENTION_DAYS` | 로그 보관 일수 |
+| `server.monitor_addr` | `127.0.0.1:9090` | `SHIELD_AGENT_MONITOR_ADDR` | 모니터링/UI 주소 |
+| `logging.level` | `info` | `SHIELD_AGENT_LOG_LEVEL` | `debug`/`info`/`warn`/`error` |
+| `logging.format` | `json` | `SHIELD_AGENT_LOG_FORMAT` | `json` / `text` |
+
+### 미들웨어 설정
 
 ```yaml
 middlewares:
@@ -232,156 +359,86 @@ middlewares:
   - name: guard
     enabled: true
     config:
-      rate_limit_per_min: 60
-      max_body_size: 65536
-      ip_blocklist:
-        - "203.0.113.0/24"
-      ip_allowlist:
-        - "10.0.0.0/8"
+      rate_limit_per_min: 60          # 메서드별 분당 요청 제한
+      max_body_size: 65536            # 최대 요청 크기 (바이트)
+      ip_blocklist: ["203.0.113.0/24"]
+      ip_allowlist: ["10.0.0.0/8"]    # 비어있으면 모두 허용
+      brute_force_max_fails: 5        # 연속 5회 실패 시 자동 차단
+      validate_jsonrpc: true          # malformed JSON-RPC 거부
+  - name: token
+    enabled: false                    # 토큰 미들웨어 (필요시 활성화)
   - name: log
     enabled: true
 ```
 
-```bash
-# CLI로 미들웨어 토글
-shield-agent proxy --disable-middleware guard --upstream http://localhost:8000
-shield-agent proxy --enable-middleware log --upstream http://localhost:8000
-```
+### CLI 플래그
 
-### Auth (인증)
+| 플래그 | 설명 |
+|--------|------|
+| `--config <path>` | 설정 파일 경로 (기본: `shield-agent.yaml`) |
+| `--log-level <level>` | 로그 수준 |
+| `--verbose` | `--log-level debug` 별칭 |
+| `--monitor-addr <addr>` | 모니터링 주소 |
+| `--disable-middleware <name>` | 미들웨어 비활성화 |
+| `--enable-middleware <name>` | 미들웨어 활성화 |
 
-Ed25519 서명 기반 에이전트 인증. MCP (JSON-RPC), A2A, HTTP API 세 가지 통신 모두에 동일한 검증 로직을 적용합니다.
+### SIGHUP 핫 리로드
 
-| 프로토콜 | Agent ID 헤더/필드 | 서명 헤더/필드 |
-|---------|-------------------|---------------|
-| MCP (JSON-RPC) | `_mcp_agent_id` (params) | `_mcp_signature` (params) |
-| A2A | `X-Agent-ID` (header) | `X-A2A-Signature` (header) |
-| HTTP API | `X-Agent-ID` (header) | `X-Agent-Signature` (header) |
-
-**Agent ID 형식:**
-
-| 형식 | 해석 |
-|------|------|
-| `did:key:z...` | Base58btc 디코드 + 멀티코덱(0xed01) 검증 |
-| 일반 문자열 | `keys.yaml`에서 조회 |
-
-**보안 모드:** `open` (경고만, 기본값) / `closed` (미인증 요청 거부)
-
-### Guard (방어)
-
-| Config key | 기본값 | 설명 |
-|------------|--------|------|
-| `rate_limit_per_min` | `0` (무제한) | 메서드별 분당 최대 요청 수 |
-| `max_body_size` | `0` (무제한) | 최대 요청 본문 크기 (바이트) |
-| `ip_blocklist` | — | 차단할 CIDR 범위 또는 IP |
-| `ip_allowlist` | — | 허용할 CIDR 범위 (비어 있으면 모두 허용) |
-| `brute_force_max_fails` | `0` (비활성) | 연속 실패 N회 시 10분 자동 차단 |
-| `validate_jsonrpc` | `false` | malformed JSON-RPC 페이로드 거부 |
-
-### Log (감사 로깅)
-
-SQLite에 비동기 요청/응답 로깅.
-
-- 논블로킹 write 채널 (버퍼 512)
-- ID별 보류 요청 추적, 응답 시 레이턴시 계산
-- Prometheus 카운터/히스토그램 연동
-
-## 로그 조회 CLI
+프로세스 재시작 없이 설정 변경:
 
 ```bash
-shield-agent logs [flags]
+kill -HUP $(pgrep shield-agent)
 ```
 
-| Flag | 설명 |
-|------|------|
-| `--last N` | 최근 N개 항목 (기본값: 50) |
-| `--agent <id>` | 에이전트 ID로 필터링 |
-| `--since <duration>` | 시간 필터 (예: `1h`, `30m`) |
-| `--method <name>` | JSON-RPC 메서드로 필터링 |
-| `--format json\|table` | 출력 형식 (기본값: `table`) |
+미들웨어 체인, keys.yaml, DID blocklist가 리로드됩니다.
 
-## 스토리지
-
-SQLite (WAL 모드, busy timeout 5초). 기본 경로: `shield-agent.db`
-
-- **자동 마이그레이션**: `schema_versions` 테이블로 버전 관리
-- **자동 삭제**: `retention_days` (기본 30일) 경과 항목 삭제
-
-**스키마 (`action_logs`):**
-
-| 컬럼 | 설명 |
-|------|------|
-| `timestamp` | 기록 시각 |
-| `agent_id_hash` | 에이전트 ID SHA-256 해시 (익명화) |
-| `method` | JSON-RPC 메서드명 |
-| `direction` | `in` / `out` |
-| `success` | 성공 여부 |
-| `latency_ms` | 레이턴시 (밀리초) |
-| `payload_size` | 크기 (바이트) |
-| `auth_status` | `verified` / `failed` / `unsigned` |
-| `error_code` | 에러 코드 |
-| `ip_address` | 요청 원본 IP |
+---
 
 ## 모니터링
 
-기본 주소: `127.0.0.1:9090`
+### 엔드포인트
 
-| 엔드포인트 | 설명 |
-|-----------|------|
-| `/` | JSON 인덱스 |
+| 경로 | 설명 |
+|------|------|
 | `/healthz` | 헬스 체크 (`healthy` / `degraded`) |
 | `/metrics` | Prometheus 메트릭 |
+| `/ui` | Web UI 대시보드 |
 
 ### Prometheus 메트릭
 
-| Metric | Type | Labels |
-|--------|------|--------|
+| 메트릭 | 타입 | 라벨 |
+|--------|------|------|
 | `shield_agent_messages_total` | Counter | `direction`, `method` |
 | `shield_agent_auth_total` | Counter | `status` |
 | `shield_agent_message_latency_seconds` | Histogram | `method` |
 | `shield_agent_child_process_up` | Gauge | — |
 | `shield_agent_rate_limit_rejected_total` | Counter | `method` |
 
-## 설정
+### 로그 조회 CLI
 
-**우선순위:** CLI 플래그 > 환경 변수 > YAML 설정 파일 > 기본값
+```bash
+shield-agent logs                              # 최근 50개
+shield-agent logs --last 100                   # 최근 100개
+shield-agent logs --agent <id> --since 1h      # 특정 에이전트, 최근 1시간
+shield-agent logs --method tools/call           # 특정 메서드
+shield-agent logs --format json                # JSON 출력
+```
 
-`shield-agent.example.yaml`을 `shield-agent.yaml`로 복사하여 시작하세요.
+---
 
-| Setting | 기본값 | 환경 변수 |
-|---------|--------|-----------|
-| `server.monitor_addr` | `127.0.0.1:9090` | `SHIELD_AGENT_MONITOR_ADDR` |
-| `server.tls_cert` | — | `SHIELD_AGENT_TLS_CERT` |
-| `server.tls_key` | — | `SHIELD_AGENT_TLS_KEY` |
-| `server.cors_allowed_origins` | `["*"]` | — |
-| `security.mode` | `open` | `SHIELD_AGENT_SECURITY_MODE` |
-| `security.key_store_path` | `keys.yaml` | `SHIELD_AGENT_KEY_STORE_PATH` |
-| `logging.level` | `info` | `SHIELD_AGENT_LOG_LEVEL` |
-| `logging.format` | `json` | `SHIELD_AGENT_LOG_FORMAT` |
-| `storage.db_path` | `shield-agent.db` | `SHIELD_AGENT_DB_PATH` |
-| `storage.retention_days` | `30` | `SHIELD_AGENT_RETENTION_DAYS` |
-| `telemetry.enabled` | `false` | `SHIELD_AGENT_TELEMETRY_ENABLED` |
+## Web UI
 
-### 전역 CLI 플래그
+`http://localhost:9090/ui` 로 접속.
 
-| Flag | 설명 |
-|------|------|
-| `--config <path>` | 설정 파일 경로 (기본값: `shield-agent.yaml`) |
-| `--log-level debug\|info\|warn\|error` | 로그 상세 수준 |
-| `--verbose` | `--log-level debug`의 별칭 |
-| `--telemetry` | 익명 텔레메트리 활성화 |
-| `--monitor-addr <addr>` | 모니터링 수신 주소 |
-| `--disable-middleware <name>` | 미들웨어 비활성화 |
-| `--enable-middleware <name>` | 미들웨어 활성화 |
+- **초기 비밀번호**: `admin` (첫 로그인 시 변경 강제)
+- **대시보드**: 실시간 요청 수, 에러율, 평균 레이턴시
+- **로그**: 필터링 가능한 감사 로그 테이블
+- **토큰 관리**: 토큰 발급/폐기/사용량 통계
+- **미들웨어**: on/off 토글 (재시작해도 유지)
+- **Agent Keys**: 공개키 등록/삭제 (keys.yaml 없이 Web UI로 관리)
+- **Upstreams**: Gateway 모드 upstream 등록/수정/삭제
 
-## 현재 제한 사항
-
-- 요청 콘텐츠 필터링 없음 — 메타데이터만 기록
-- 동적 키 등록 API 없음 (`keys.yaml` 수동 편집 필요)
-- 텔레메트리는 별도 수집 서버 필요
-- WebSocket MCP 전송 방식 미지원
-- 토큰 기반 접근 제어 미구현 (Phase 3 예정)
-- Web UI 미구현 (Phase 3 예정)
+---
 
 ## 로드맵
 
@@ -389,10 +446,13 @@ SQLite (WAL 모드, busy timeout 5초). 기본 경로: `shield-agent.db`
 
 | Phase | 상태 | 설명 |
 |-------|------|------|
-| Phase 1 — Core MVP | **완료** | Transport, Auth, Guard, Log, Middleware Chain, CLI |
-| Phase 2 — 배포 & 설치 | **완료** | Docker, Homebrew, GoReleaser, CI/CD, 문서 |
-| Phase 3 — 토큰 & Web UI | **완료** | 토큰 발급/관리/quota, Web UI 대시보드 |
-| Phase 4 — 고도화 | 예정 | Agent 평판 시스템, 고급 보안, 텔레메트리 |
+| Phase 1 — Core MVP | **완료** | Transport, Auth, Guard, Log, Middleware Chain |
+| Phase 2 — 배포 & 설치 | **완료** | Docker, Homebrew, GoReleaser, CI/CD |
+| Phase 3 — 토큰 & Web UI | **완료** | 토큰 관리, Web UI 대시보드 |
+| Phase 3.5 — Gateway & DID | **완료** | Multi-upstream 라우팅, DID blocklist, verified 모드 |
+| Phase 4 — 고도화 | 예정 | Agent 평판, 프로토콜 자동 감지, WebSocket |
+
+---
 
 ## 라이선스
 
