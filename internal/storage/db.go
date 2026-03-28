@@ -24,8 +24,9 @@ type ActionLog struct {
 	LatencyMs   float64   `json:"latency_ms"`
 	PayloadSize int       `json:"payload_size"`
 	AuthStatus  string    `json:"auth"`
-	ErrorCode   string    `json:"error_code"`
-	IPAddress   string    `json:"ip"`
+	ErrorCode    string    `json:"error_code"`
+	IPAddress    string    `json:"ip"`
+	UpstreamName string    `json:"upstream_name"`
 }
 
 // migration represents a single schema migration step.
@@ -115,6 +116,25 @@ CREATE TABLE IF NOT EXISTS agent_keys (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_keys_active ON agent_keys (active);`,
 	},
+	{
+		version: 7,
+		sql:     `ALTER TABLE action_logs ADD COLUMN upstream_name TEXT DEFAULT '';`,
+	},
+	{
+		version: 8,
+		sql: `
+CREATE TABLE IF NOT EXISTS upstreams (
+	name            TEXT PRIMARY KEY,
+	url             TEXT NOT NULL,
+	match_host      TEXT DEFAULT '',
+	match_prefix    TEXT DEFAULT '',
+	strip_prefix    BOOLEAN DEFAULT 0,
+	transport       TEXT DEFAULT 'streamable-http',
+	tls_skip_verify BOOLEAN DEFAULT 0,
+	active          BOOLEAN DEFAULT 1,
+	created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`,
+	},
 }
 
 // Open opens (or creates) a SQLite database at path, enables WAL mode, and
@@ -197,9 +217,9 @@ func (db *DB) Close() error {
 func (db *DB) Insert(log ActionLog) error {
 	const q = `
 INSERT INTO action_logs
-	(timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address)
+	(timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address, upstream_name)
 VALUES
-	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := db.conn.Exec(q,
 		log.Timestamp.UTC(),
@@ -212,16 +232,18 @@ VALUES
 		log.AuthStatus,
 		log.ErrorCode,
 		log.IPAddress,
+		log.UpstreamName,
 	)
 	return err
 }
 
 // QueryOptions controls which log entries are returned by QueryLogs.
 type QueryOptions struct {
-	Last      int
-	AgentHash string
-	Since     time.Duration
-	Method    string
+	Last         int
+	AgentHash    string
+	Since        time.Duration
+	Method       string
+	UpstreamName string
 }
 
 // QueryLogs returns log entries matching opts, ordered newest-first.
@@ -242,8 +264,12 @@ func (db *DB) QueryLogs(opts QueryOptions) ([]ActionLog, error) {
 		where = append(where, "method = ?")
 		args = append(args, opts.Method)
 	}
+	if opts.UpstreamName != "" {
+		where = append(where, "upstream_name = ?")
+		args = append(args, opts.UpstreamName)
+	}
 
-	q := "SELECT timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address FROM action_logs"
+	q := "SELECT timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address, upstream_name FROM action_logs"
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -266,7 +292,7 @@ func (db *DB) QueryLogs(opts QueryOptions) ([]ActionLog, error) {
 		var l ActionLog
 		var ts string
 		if err := rows.Scan(&ts, &l.AgentIDHash, &l.Method, &l.Direction,
-			&l.Success, &l.LatencyMs, &l.PayloadSize, &l.AuthStatus, &l.ErrorCode, &l.IPAddress); err != nil {
+			&l.Success, &l.LatencyMs, &l.PayloadSize, &l.AuthStatus, &l.ErrorCode, &l.IPAddress, &l.UpstreamName); err != nil {
 			return nil, fmt.Errorf("scanning log row: %w", err)
 		}
 		if t, err := time.Parse("2006-01-02T15:04:05Z", ts); err == nil {
@@ -374,6 +400,74 @@ func (db *DB) DeleteAgentKey(id string) error {
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return fmt.Errorf("agent key %q not found", id)
+	}
+	return nil
+}
+
+// UpstreamRow represents a row in the upstreams table.
+type UpstreamRow struct {
+	Name          string `json:"name"`
+	URL           string `json:"url"`
+	MatchHost     string `json:"match_host"`
+	MatchPrefix   string `json:"match_prefix"`
+	StripPrefix   bool   `json:"strip_prefix"`
+	Transport     string `json:"transport"`
+	TLSSkipVerify bool   `json:"tls_skip_verify"`
+	Active        bool   `json:"active"`
+	CreatedAt     string `json:"created_at"`
+}
+
+// ListUpstreams returns all active upstreams.
+func (db *DB) ListUpstreams() ([]UpstreamRow, error) {
+	rows, err := db.conn.Query(
+		"SELECT name, url, match_host, match_prefix, strip_prefix, transport, tls_skip_verify, active, created_at FROM upstreams WHERE active = 1 ORDER BY created_at")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []UpstreamRow
+	for rows.Next() {
+		var u UpstreamRow
+		if err := rows.Scan(&u.Name, &u.URL, &u.MatchHost, &u.MatchPrefix, &u.StripPrefix, &u.Transport, &u.TLSSkipVerify, &u.Active, &u.CreatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, u)
+	}
+	return result, rows.Err()
+}
+
+// InsertUpstream adds a new upstream.
+func (db *DB) InsertUpstream(u UpstreamRow) error {
+	_, err := db.conn.Exec(
+		"INSERT INTO upstreams (name, url, match_host, match_prefix, strip_prefix, transport, tls_skip_verify) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		u.Name, u.URL, u.MatchHost, u.MatchPrefix, u.StripPrefix, u.Transport, u.TLSSkipVerify)
+	return err
+}
+
+// UpdateUpstream modifies an existing upstream.
+func (db *DB) UpdateUpstream(name string, u UpstreamRow) error {
+	res, err := db.conn.Exec(
+		"UPDATE upstreams SET url=?, match_host=?, match_prefix=?, strip_prefix=?, transport=?, tls_skip_verify=? WHERE name=?",
+		u.URL, u.MatchHost, u.MatchPrefix, u.StripPrefix, u.Transport, u.TLSSkipVerify, name)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("upstream %q not found", name)
+	}
+	return nil
+}
+
+// DeleteUpstream soft-deletes an upstream.
+func (db *DB) DeleteUpstream(name string) error {
+	res, err := db.conn.Exec("UPDATE upstreams SET active = 0 WHERE name = ?", name)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("upstream %q not found", name)
 	}
 	return nil
 }

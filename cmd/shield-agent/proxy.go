@@ -57,11 +57,10 @@ Example (cloud MCP Streamable HTTP):
 
 	f := cmd.Flags()
 	f.StringVar(&listenAddr, "listen", ":8888", "listen address (e.g. :8888 or 127.0.0.1:8888)")
-	f.StringVar(&upstream, "upstream", "", "upstream MCP server base URL (required, e.g. http://localhost:8000)")
+	f.StringVar(&upstream, "upstream", "", "upstream MCP server base URL (e.g. http://localhost:8000); optional when upstreams config is set")
 	f.StringVar(&transportType, "transport", "streamable-http", "transport type: sse or streamable-http")
 	f.StringVar(&tlsCert, "tls-cert", "", "path to TLS certificate file (enables HTTPS when set with --tls-key)")
 	f.StringVar(&tlsKey, "tls-key", "", "path to TLS key file (enables HTTPS when set with --tls-cert)")
-	_ = cmd.MarkFlagRequired("upstream")
 
 	return cmd
 }
@@ -218,13 +217,35 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	// 8. Select transport handler.
 	allowedOrigins := cfg.Server.CORSAllowedOrigins
 	var handler http.Handler
-	switch transportType {
-	case "sse":
-		handler = proxy.NewSSEProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
-	case "streamable-http", "streamable_http", "http":
-		handler = proxy.NewStreamableProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
-	default:
-		return fmt.Errorf("unknown transport %q — use sse or streamable-http", transportType)
+
+	if len(cfg.Upstreams) > 0 {
+		// Gateway mode: multi-upstream router.
+		factory := func(u config.UpstreamConfig) http.Handler {
+			t := u.Transport
+			if t == "" {
+				t = transportType
+			}
+			switch t {
+			case "sse":
+				return proxy.NewSSEProxy(u.URL, swappableChain, logger, allowedOrigins).Handler()
+			default:
+				return proxy.NewStreamableProxy(u.URL, swappableChain, logger, allowedOrigins).Handler()
+			}
+		}
+		handler = proxy.NewRouter(cfg.Upstreams, factory, logger)
+		logger.Info("gateway mode enabled", "upstreams", len(cfg.Upstreams))
+	} else if upstream != "" {
+		// Legacy single-upstream mode.
+		switch transportType {
+		case "sse":
+			handler = proxy.NewSSEProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
+		case "streamable-http", "streamable_http", "http":
+			handler = proxy.NewStreamableProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
+		default:
+			return fmt.Errorf("unknown transport %q — use sse or streamable-http", transportType)
+		}
+	} else {
+		return fmt.Errorf("either --upstream flag or upstreams config is required")
 	}
 
 	srv := &http.Server{

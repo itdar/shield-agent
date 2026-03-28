@@ -208,8 +208,8 @@ func TestSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 6 {
-		t.Fatalf("expected schema version 6, got %d", v)
+	if v != 8 {
+		t.Fatalf("expected schema version 8, got %d", v)
 	}
 }
 
@@ -225,8 +225,8 @@ func TestMigrateIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if v != 6 {
-		t.Fatalf("expected schema version 6 after re-migrate, got %d", v)
+	if v != 8 {
+		t.Fatalf("expected schema version 8 after re-migrate, got %d", v)
 	}
 }
 

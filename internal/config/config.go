@@ -16,6 +16,24 @@ type MiddlewareEntry struct {
 	Config  map[string]any `yaml:"config,omitempty"`
 }
 
+// UpstreamMatch defines how incoming requests are matched to an upstream.
+type UpstreamMatch struct {
+	Host        string `yaml:"host"`
+	PathPrefix  string `yaml:"path_prefix"`
+	StripPrefix bool   `yaml:"strip_prefix"`
+}
+
+// UpstreamConfig describes a single upstream target for gateway mode.
+type UpstreamConfig struct {
+	Name          string        `yaml:"name"`
+	URL           string        `yaml:"url"`
+	Match         UpstreamMatch `yaml:"match"`
+	Transport     string        `yaml:"transport"`        // "sse" or "streamable-http"
+	TLSSkipVerify bool          `yaml:"tls_skip_verify"`  // skip upstream cert verification
+	TLSClientCert string        `yaml:"tls_client_cert"`  // mTLS client cert path
+	TLSClientKey  string        `yaml:"tls_client_key"`   // mTLS client key path
+}
+
 // Config is the top-level configuration structure.
 type Config struct {
 	Server      ServerConfig      `yaml:"server"`
@@ -24,6 +42,7 @@ type Config struct {
 	Telemetry   TelemetryConfig   `yaml:"telemetry"`
 	Storage     StorageConfig     `yaml:"storage"`
 	Middlewares []MiddlewareEntry `yaml:"middlewares,omitempty"`
+	Upstreams   []UpstreamConfig  `yaml:"upstreams,omitempty"`
 }
 
 // ServerConfig holds HTTP monitoring server settings.
@@ -268,6 +287,24 @@ func Validate(cfg *Config) error {
 	// monitor_addr must be non-empty
 	if strings.TrimSpace(cfg.Server.MonitorAddr) == "" {
 		return fmt.Errorf("server.monitor_addr must not be empty")
+	}
+
+	// Upstreams validation
+	names := make(map[string]bool)
+	for _, u := range cfg.Upstreams {
+		if u.Name == "" {
+			return fmt.Errorf("upstream name must not be empty")
+		}
+		if u.URL == "" {
+			return fmt.Errorf("upstream %q: url must not be empty", u.Name)
+		}
+		if names[u.Name] {
+			return fmt.Errorf("duplicate upstream name %q", u.Name)
+		}
+		names[u.Name] = true
+		if u.Transport != "" && u.Transport != "sse" && u.Transport != "streamable-http" {
+			return fmt.Errorf("upstream %q: transport must be sse or streamable-http, got %q", u.Name, u.Transport)
+		}
 	}
 
 	return nil

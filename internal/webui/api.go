@@ -73,6 +73,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/middlewares/", a.requireAuth(a.handleMiddlewareToggle))
 	mux.HandleFunc("/api/keys", a.requireAuth(a.handleKeys))
 	mux.HandleFunc("/api/keys/", a.requireAuth(a.handleKeyByID))
+	mux.HandleFunc("/api/upstreams", a.requireAuth(a.handleUpstreams))
+	mux.HandleFunc("/api/upstreams/", a.requireAuth(a.handleUpstreamByName))
 }
 
 // --- Auth ---
@@ -432,6 +434,77 @@ func (a *API) handleMiddlewareToggle(w http.ResponseWriter, r *http.Request) {
 		"name":    name,
 		"enabled": !currentEnabled,
 	})
+}
+
+// --- Upstreams ---
+
+func (a *API) handleUpstreams(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		ups, err := a.db.ListUpstreams()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if ups == nil {
+			ups = []storage.UpstreamRow{}
+		}
+		writeJSON(w, http.StatusOK, ups)
+
+	case http.MethodPost:
+		var body storage.UpstreamRow
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Name == "" || body.URL == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name and url are required"})
+			return
+		}
+		if body.Transport == "" {
+			body.Transport = "streamable-http"
+		}
+		if err := a.db.InsertUpstream(body); err != nil {
+			if strings.Contains(err.Error(), "UNIQUE") {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "upstream name already exists"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]string{"ok": "upstream created", "name": body.Name})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleUpstreamByName(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/upstreams/")
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "upstream name required"})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPut:
+		var body storage.UpstreamRow
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.URL == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url is required"})
+			return
+		}
+		if err := a.db.UpdateUpstream(name, body); err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "upstream updated"})
+
+	case http.MethodDelete:
+		if err := a.db.DeleteUpstream(name); err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"ok": "upstream deleted"})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // --- Agent Keys ---
