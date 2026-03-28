@@ -269,6 +269,38 @@ func (db *DB) QueryLogs(opts QueryOptions) ([]ActionLog, error) {
 	return logs, rows.Err()
 }
 
+// SaveConfig stores a key-value pair in the admin_config table.
+func (db *DB) SaveConfig(key, value string) error {
+	_, err := db.conn.Exec(
+		"INSERT OR REPLACE INTO admin_config (key, value) VALUES (?, ?)", key, value)
+	return err
+}
+
+// LoadConfig retrieves a single value from admin_config by key.
+func (db *DB) LoadConfig(key string) (string, error) {
+	var val string
+	err := db.conn.QueryRow("SELECT value FROM admin_config WHERE key = ?", key).Scan(&val)
+	return val, err
+}
+
+// LoadConfigPrefix returns all admin_config entries whose key starts with prefix.
+func (db *DB) LoadConfigPrefix(prefix string) (map[string]string, error) {
+	rows, err := db.conn.Query("SELECT key, value FROM admin_config WHERE key LIKE ?", prefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		result[k] = v
+	}
+	return result, rows.Err()
+}
+
 // Purge deletes log entries older than retentionDays days.
 // Returns the number of rows deleted.
 func (db *DB) Purge(retentionDays int) (int64, error) {

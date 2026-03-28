@@ -113,6 +113,12 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	// 5. Token store.
 	tokenStore := token.NewStore(db.Conn())
 
+	// 5b. Apply DB-persisted middleware overrides (e.g. Web UI toggles).
+	if overrides, err := db.LoadConfigPrefix("middleware_enabled_"); err == nil && len(overrides) > 0 {
+		config.ApplyDBOverrides(&cfg, overrides)
+		logger.Info("applied DB middleware overrides", "count", len(overrides))
+	}
+
 	// 6. Build middleware chain from config.
 	deps := middleware.Dependencies{
 		DB:         db,

@@ -273,6 +273,18 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
+// ApplyDBOverrides merges admin_config key-value overrides into cfg.
+// Currently supports middleware_enabled_{name} keys.
+func ApplyDBOverrides(cfg *Config, overrides map[string]string) {
+	for k, v := range overrides {
+		if strings.HasPrefix(k, "middleware_enabled_") {
+			name := strings.TrimPrefix(k, "middleware_enabled_")
+			enabled := v == "true"
+			SetMiddlewareEnabled(cfg, name, enabled)
+		}
+	}
+}
+
 // parseBool parses a string as a boolean, returning fallback on parse failure.
 func parseBool(s string, fallback bool) bool {
 	v, err := strconv.ParseBool(s)

@@ -413,6 +413,18 @@ func (a *API) handleMiddlewareToggle(w http.ResponseWriter, r *http.Request) {
 		a.toggleMW(name, !currentEnabled)
 	}
 
+	// Persist middleware state to DB so it survives restarts.
+	if a.db != nil {
+		key := fmt.Sprintf("middleware_enabled_%s", name)
+		val := "false"
+		if !currentEnabled {
+			val = "true"
+		}
+		if err := a.db.SaveConfig(key, val); err != nil {
+			a.logger.Error("failed to persist middleware toggle", "error", err.Error())
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"name":    name,
 		"enabled": !currentEnabled,

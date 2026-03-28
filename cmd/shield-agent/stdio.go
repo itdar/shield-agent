@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/itdar/shield-agent/internal/auth"
+	"github.com/itdar/shield-agent/internal/config"
 	"github.com/itdar/shield-agent/internal/middleware"
 	"github.com/itdar/shield-agent/internal/monitor"
 	"github.com/itdar/shield-agent/internal/process"
@@ -106,6 +107,12 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 		"", // salt — could be loaded from config in future
 		logger,
 	)
+
+	// 5b. Apply DB-persisted middleware overrides (e.g. Web UI toggles).
+	if overrides, err := db.LoadConfigPrefix("middleware_enabled_"); err == nil && len(overrides) > 0 {
+		config.ApplyDBOverrides(&cfg, overrides)
+		logger.Info("applied DB middleware overrides", "count", len(overrides))
+	}
 
 	// 6. Build middleware chain from config.
 	deps := middleware.Dependencies{
