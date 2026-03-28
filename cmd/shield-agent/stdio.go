@@ -118,12 +118,13 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 
 	// 6. Build middleware chain from config.
 	deps := middleware.Dependencies{
-		DB:       db,
-		Logger:   logger,
-		Metrics:  metrics,
-		KeyStore: cachedStore,
-		TelCol:   telCol,
-		SecMode:  cfg.Security.Mode,
+		DB:           db,
+		Logger:       logger,
+		Metrics:      metrics,
+		KeyStore:     cachedStore,
+		TelCol:       telCol,
+		SecMode:      cfg.Security.Mode,
+		DIDBlocklist: cfg.Security.DIDBlocklist,
 	}
 	chain, closeMiddlewares, err := middleware.BuildChain(cfg.Middlewares, deps)
 	if err != nil {
@@ -154,12 +155,13 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 			newCachedStore := auth.NewCachedKeyStore(newFileStore, 5*time.Minute)
 
 			newDeps := middleware.Dependencies{
-				DB:       db,
-				Logger:   newLogger,
-				Metrics:  metrics,
-				KeyStore: newCachedStore,
-				TelCol:   telCol,
-				SecMode:  newCfg.Security.Mode,
+				DB:           db,
+				Logger:       newLogger,
+				Metrics:      metrics,
+				KeyStore:     newCachedStore,
+				TelCol:       telCol,
+				SecMode:      newCfg.Security.Mode,
+				DIDBlocklist: newCfg.Security.DIDBlocklist,
 			}
 			newChain, newCloser, err := middleware.BuildChain(newCfg.Middlewares, newDeps)
 			if err != nil {

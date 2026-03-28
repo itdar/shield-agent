@@ -122,13 +122,14 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 
 	// 6. Build middleware chain from config.
 	deps := middleware.Dependencies{
-		DB:         db,
-		Logger:     logger,
-		Metrics:    metrics,
-		KeyStore:   cachedStore,
-		TelCol:     telCol,
-		SecMode:    cfg.Security.Mode,
-		TokenStore: tokenStore,
+		DB:           db,
+		Logger:       logger,
+		Metrics:      metrics,
+		KeyStore:     cachedStore,
+		TelCol:       telCol,
+		SecMode:      cfg.Security.Mode,
+		TokenStore:   tokenStore,
+		DIDBlocklist: cfg.Security.DIDBlocklist,
 	}
 	chain, closeMiddlewares, err := middleware.BuildChain(cfg.Middlewares, deps)
 	if err != nil {
@@ -159,12 +160,13 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 			newCachedStore := auth.NewCachedKeyStore(newFileStore, 5*time.Minute)
 
 			newDeps := middleware.Dependencies{
-				DB:       db,
-				Logger:   newLogger,
-				Metrics:  metrics,
-				KeyStore: newCachedStore,
-				TelCol:   telCol,
-				SecMode:  newCfg.Security.Mode,
+				DB:           db,
+				Logger:       newLogger,
+				Metrics:      metrics,
+				KeyStore:     newCachedStore,
+				TelCol:       telCol,
+				SecMode:      newCfg.Security.Mode,
+				DIDBlocklist: newCfg.Security.DIDBlocklist,
 			}
 			newChain, newCloser, err := middleware.BuildChain(newCfg.Middlewares, newDeps)
 			if err != nil {

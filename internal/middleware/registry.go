@@ -14,13 +14,14 @@ import (
 
 // Dependencies holds shared resources needed by middleware factories.
 type Dependencies struct {
-	DB         *storage.DB
-	Logger     *slog.Logger
-	Metrics    *monitor.Metrics
-	KeyStore   auth.KeyStore
-	TelCol     *telemetry.Collector
-	SecMode    string // "open" or "closed"
-	TokenStore *token.Store
+	DB           *storage.DB
+	Logger       *slog.Logger
+	Metrics      *monitor.Metrics
+	KeyStore     auth.KeyStore
+	TelCol       *telemetry.Collector
+	SecMode      string // "open", "verified", or "closed"
+	TokenStore   *token.Store
+	DIDBlocklist []string
 }
 
 // BuildChain creates a middleware Chain from config entries and dependencies.
@@ -63,7 +64,7 @@ func createMiddleware(entry config.MiddlewareEntry, deps Dependencies) (Middlewa
 	case "auth":
 		mw := NewAuthMiddleware(deps.KeyStore, deps.SecMode, deps.Logger, func(status string) {
 			deps.Metrics.AuthTotal.WithLabelValues(status).Inc()
-		})
+		}, deps.DIDBlocklist)
 		return mw, nil, nil
 	case "guard":
 		cfg := GuardConfig{}

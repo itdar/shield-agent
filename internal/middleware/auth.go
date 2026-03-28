@@ -18,21 +18,27 @@ import (
 // AuthMiddleware verifies Ed25519 signatures on incoming JSON-RPC requests.
 type AuthMiddleware struct {
 	PassthroughMiddleware
-	store  auth.KeyStore
-	mode   string
-	logger *slog.Logger
-	onAuth func(string)
+	store        auth.KeyStore
+	mode         string
+	logger       *slog.Logger
+	onAuth       func(string)
+	didBlocklist map[string]bool
 }
 
 // NewAuthMiddleware creates a new AuthMiddleware.
-// mode should be "open" or "closed".
+// mode should be "open", "verified", or "closed".
 // onAuth is called with "verified", "failed", or "unsigned" for each request.
-func NewAuthMiddleware(store auth.KeyStore, mode string, logger *slog.Logger, onAuth func(string)) *AuthMiddleware {
+func NewAuthMiddleware(store auth.KeyStore, mode string, logger *slog.Logger, onAuth func(string), didBlocklist []string) *AuthMiddleware {
+	bl := make(map[string]bool, len(didBlocklist))
+	for _, d := range didBlocklist {
+		bl[d] = true
+	}
 	return &AuthMiddleware{
-		store:  store,
-		mode:   mode,
-		logger: logger,
-		onAuth: onAuth,
+		store:        store,
+		mode:         mode,
+		logger:       logger,
+		onAuth:       onAuth,
+		didBlocklist: bl,
 	}
 }
 
@@ -52,7 +58,20 @@ func (a *AuthMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Reques
 	if agentID == "" || sigHex == "" {
 		record("unsigned")
 		a.logger.Warn("unsigned request", slog.String("method", req.Method))
+		if a.mode == "verified" || a.mode == "closed" {
+			return nil, fmt.Errorf("authentication required")
+		}
 		return req, nil
+	}
+
+	// Check DID blocklist.
+	if strings.HasPrefix(agentID, "did:key:") && a.didBlocklist[agentID] {
+		record("blocked")
+		a.logger.Warn("blocked DID agent",
+			slog.String("agent_id_hash", auth.AgentIDHash(agentID)),
+			slog.String("method", req.Method),
+		)
+		return nil, fmt.Errorf("agent is blocked")
 	}
 
 	// Resolve public key.

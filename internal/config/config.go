@@ -55,8 +55,9 @@ type ServerConfig struct {
 
 // SecurityConfig controls authentication/authorization behavior.
 type SecurityConfig struct {
-	Mode         string `yaml:"mode"`          // "open" or "closed"
-	KeyStorePath string `yaml:"key_store_path"` // path to keys.yaml
+	Mode         string   `yaml:"mode"`           // "open", "verified", or "closed"
+	KeyStorePath string   `yaml:"key_store_path"` // path to keys.yaml
+	DIDBlocklist []string `yaml:"did_blocklist"`  // blocked DID identifiers
 }
 
 // LoggingConfig controls structured log output.
@@ -250,9 +251,9 @@ func SetMiddlewareEnabled(cfg *Config, name string, enabled bool) {
 func Validate(cfg *Config) error {
 	// Security mode
 	switch cfg.Security.Mode {
-	case "open", "closed":
+	case "open", "verified", "closed":
 	default:
-		return fmt.Errorf("security.mode must be \"open\" or \"closed\", got %q", cfg.Security.Mode)
+		return fmt.Errorf("security.mode must be one of open/verified/closed, got %q", cfg.Security.Mode)
 	}
 
 	// Log level

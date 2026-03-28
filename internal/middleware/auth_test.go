@@ -36,7 +36,7 @@ func newTestAuthMiddleware(store auth.KeyStore, mode string) (*AuthMiddleware, *
 	var lastStatus string
 	mw := NewAuthMiddleware(store, mode, discardLogger(), func(s string) {
 		lastStatus = s
-	})
+	}, nil)
 	return mw, &lastStatus
 }
 
@@ -54,17 +54,31 @@ func unsignedRequest(method string) *jsonrpc.Request {
 func TestAuthMiddlewareUnsigned(t *testing.T) {
 	store := &mapKeyStore{keys: map[string]ed25519.PublicKey{}}
 
-	for _, mode := range []string{"open", "closed"} {
+	t.Run("open", func(t *testing.T) {
+		mw, status := newTestAuthMiddleware(store, "open")
+		req := unsignedRequest("tools/list")
+
+		out, err := mw.ProcessRequest(context.Background(), req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if out == nil {
+			t.Fatal("expected request passthrough, got nil")
+		}
+		if *status != "unsigned" {
+			t.Errorf("status=%q, want \"unsigned\"", *status)
+		}
+	})
+
+	// verified and closed modes reject unsigned requests.
+	for _, mode := range []string{"verified", "closed"} {
 		t.Run(mode, func(t *testing.T) {
 			mw, status := newTestAuthMiddleware(store, mode)
 			req := unsignedRequest("tools/list")
 
-			out, err := mw.ProcessRequest(context.Background(), req)
-			if err != nil {
-				t.Fatalf("mode=%s: unexpected error: %v", mode, err)
-			}
-			if out == nil {
-				t.Fatalf("mode=%s: expected request passthrough, got nil", mode)
+			_, err := mw.ProcessRequest(context.Background(), req)
+			if err == nil {
+				t.Fatalf("mode=%s: expected error for unsigned request", mode)
 			}
 			if *status != "unsigned" {
 				t.Errorf("mode=%s: status=%q, want \"unsigned\"", mode, *status)
