@@ -93,12 +93,14 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	// 2. Prometheus metrics.
 	metrics := monitor.NewMetrics(monitor.DefaultRegisterer())
 
-	// 3. Auth KeyStore.
+	// 3. Auth KeyStore (file + DB composite).
 	fileStore, err := auth.NewFileKeyStore(cfg.Security.KeyStorePath)
 	if err != nil {
 		return fmt.Errorf("loading key store: %w", err)
 	}
-	cachedStore := auth.NewCachedKeyStore(fileStore, 5*time.Minute)
+	dbStore := auth.NewDBKeyStore(db)
+	composite := auth.NewCompositeKeyStore(fileStore, dbStore)
+	cachedStore := auth.NewCachedKeyStore(composite, 5*time.Minute)
 
 	// 4. Telemetry.
 	telCol := telemetry.New(

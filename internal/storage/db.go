@@ -103,6 +103,18 @@ CREATE TABLE IF NOT EXISTS admin_config (
 	value TEXT NOT NULL
 );`,
 	},
+	{
+		version: 6,
+		sql: `
+CREATE TABLE IF NOT EXISTS agent_keys (
+	id         TEXT PRIMARY KEY,
+	public_key TEXT NOT NULL,
+	label      TEXT DEFAULT '',
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	active     BOOLEAN NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_agent_keys_active ON agent_keys (active);`,
+	},
 }
 
 // Open opens (or creates) a SQLite database at path, enables WAL mode, and
@@ -299,6 +311,71 @@ func (db *DB) LoadConfigPrefix(prefix string) (map[string]string, error) {
 		result[k] = v
 	}
 	return result, rows.Err()
+}
+
+// AgentKey represents a registered agent public key.
+type AgentKey struct {
+	ID        string `json:"id"`
+	PublicKey string `json:"public_key"`
+	Label     string `json:"label"`
+	CreatedAt string `json:"created_at"`
+	Active    bool   `json:"active"`
+}
+
+// InsertAgentKey stores a new agent public key.
+func (db *DB) InsertAgentKey(id, publicKey, label string) error {
+	_, err := db.conn.Exec(
+		"INSERT INTO agent_keys (id, public_key, label) VALUES (?, ?, ?)",
+		id, publicKey, label)
+	return err
+}
+
+// ListAgentKeys returns all agent keys, optionally including inactive ones.
+func (db *DB) ListAgentKeys(includeInactive bool) ([]AgentKey, error) {
+	q := "SELECT id, public_key, label, created_at, active FROM agent_keys"
+	if !includeInactive {
+		q += " WHERE active = 1"
+	}
+	q += " ORDER BY created_at DESC"
+	rows, err := db.conn.Query(q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var keys []AgentKey
+	for rows.Next() {
+		var k AgentKey
+		if err := rows.Scan(&k.ID, &k.PublicKey, &k.Label, &k.CreatedAt, &k.Active); err != nil {
+			return nil, err
+		}
+		keys = append(keys, k)
+	}
+	return keys, rows.Err()
+}
+
+// GetAgentKey retrieves a single active agent key by ID.
+func (db *DB) GetAgentKey(id string) (*AgentKey, error) {
+	var k AgentKey
+	err := db.conn.QueryRow(
+		"SELECT id, public_key, label, created_at, active FROM agent_keys WHERE id = ? AND active = 1",
+		id).Scan(&k.ID, &k.PublicKey, &k.Label, &k.CreatedAt, &k.Active)
+	if err != nil {
+		return nil, err
+	}
+	return &k, nil
+}
+
+// DeleteAgentKey soft-deletes an agent key by setting active=0.
+func (db *DB) DeleteAgentKey(id string) error {
+	res, err := db.conn.Exec("UPDATE agent_keys SET active = 0 WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("agent key %q not found", id)
+	}
+	return nil
 }
 
 // Purge deletes log entries older than retentionDays days.

@@ -3,6 +3,7 @@ package webui
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -70,6 +71,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/tokens/", a.requireAuth(a.handleTokenByID))
 	mux.HandleFunc("/api/middlewares", a.requireAuth(a.handleMiddlewares))
 	mux.HandleFunc("/api/middlewares/", a.requireAuth(a.handleMiddlewareToggle))
+	mux.HandleFunc("/api/keys", a.requireAuth(a.handleKeys))
+	mux.HandleFunc("/api/keys/", a.requireAuth(a.handleKeyByID))
 }
 
 // --- Auth ---
@@ -429,6 +432,69 @@ func (a *API) handleMiddlewareToggle(w http.ResponseWriter, r *http.Request) {
 		"name":    name,
 		"enabled": !currentEnabled,
 	})
+}
+
+// --- Agent Keys ---
+
+func (a *API) handleKeys(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		keys, err := a.db.ListAgentKeys(false)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		if keys == nil {
+			keys = []storage.AgentKey{}
+		}
+		writeJSON(w, http.StatusOK, keys)
+
+	case http.MethodPost:
+		var body struct {
+			ID        string `json:"id"`
+			PublicKey string `json:"public_key"`
+			Label     string `json:"label"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" || body.PublicKey == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id and public_key are required"})
+			return
+		}
+		// Validate base64 and key size.
+		raw, err := base64.StdEncoding.DecodeString(body.PublicKey)
+		if err != nil || len(raw) != 32 {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "public_key must be base64-encoded 32-byte Ed25519 key"})
+			return
+		}
+		if err := a.db.InsertAgentKey(body.ID, body.PublicKey, body.Label); err != nil {
+			if strings.Contains(err.Error(), "UNIQUE") {
+				writeJSON(w, http.StatusConflict, map[string]string{"error": "agent ID already exists"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]string{"ok": "key registered", "id": body.ID})
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *API) handleKeyByID(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/keys/")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key ID required"})
+		return
+	}
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := a.db.DeleteAgentKey(id); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "key deleted"})
 }
 
 // --- Helpers ---

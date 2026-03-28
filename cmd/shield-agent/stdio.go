@@ -91,12 +91,14 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	// 3. Initialize Prometheus metrics.
 	metrics := monitor.NewMetrics(monitor.DefaultRegisterer())
 
-	// 4. Create auth KeyStore.
+	// 4. Create auth KeyStore (file + DB composite).
 	fileStore, err := auth.NewFileKeyStore(cfg.Security.KeyStorePath)
 	if err != nil {
 		return fmt.Errorf("loading key store: %w", err)
 	}
-	cachedStore := auth.NewCachedKeyStore(fileStore, 5*time.Minute)
+	dbStore := auth.NewDBKeyStore(db)
+	composite := auth.NewCompositeKeyStore(fileStore, dbStore)
+	cachedStore := auth.NewCachedKeyStore(composite, 5*time.Minute)
 
 	// 5. Create TelemetryCollector.
 	telCol := telemetry.New(
