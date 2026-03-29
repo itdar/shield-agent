@@ -77,7 +77,7 @@ func TestE2EPipeline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin, "python3", script)
+	cmd := exec.CommandContext(ctx, bin, "--verbose", "python3", script)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("StdinPipe: %v", err)
@@ -86,13 +86,35 @@ func TestE2EPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StdoutPipe: %v", err)
 	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatalf("StderrPipe: %v", err)
+	}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start: %v", err)
 	}
 	defer cmd.Process.Kill() //nolint:errcheck
 
-	// Give the child process time to start (race detector makes startup slower).
-	time.Sleep(500 * time.Millisecond)
+	// Wait for shield-agent to log "starting shield-agent" on stderr,
+	// which means the child process is up and the pipeline is ready.
+	ready := make(chan struct{})
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			if strings.Contains(scanner.Text(), "starting shield-agent") {
+				close(ready)
+				break
+			}
+		}
+		// Drain remaining stderr to prevent blocking.
+		for scanner.Scan() {
+		}
+	}()
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for shield-agent to start")
+	}
 
 	// Send a JSON-RPC request.
 	req := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n"
@@ -291,7 +313,7 @@ func TestE2EConcurrentRequests(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin, "python3", script)
+	cmd := exec.CommandContext(ctx, bin, "--verbose", "python3", script)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("StdinPipe: %v", err)
@@ -300,13 +322,33 @@ func TestE2EConcurrentRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StdoutPipe: %v", err)
 	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatalf("StderrPipe: %v", err)
+	}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("cmd.Start: %v", err)
 	}
 	defer cmd.Process.Kill() //nolint:errcheck
 
-	// Give the child process time to start (race detector makes startup slower).
-	time.Sleep(500 * time.Millisecond)
+	// Wait for shield-agent to be ready.
+	readyCh := make(chan struct{})
+	go func() {
+		sc := bufio.NewScanner(stderrPipe)
+		for sc.Scan() {
+			if strings.Contains(sc.Text(), "starting shield-agent") {
+				close(readyCh)
+				break
+			}
+		}
+		for sc.Scan() {
+		}
+	}()
+	select {
+	case <-readyCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for shield-agent to start")
+	}
 
 	const n = 10
 	// Send all requests in one write.
