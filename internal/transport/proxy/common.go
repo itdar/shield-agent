@@ -38,6 +38,20 @@ func buildUpstreamURL(upstream, reqPath, rawQuery string) string {
 	return result
 }
 
+// applyRequestWithIP is like applyRequest but injects the client IP into the
+// middleware context so that auth and log middlewares can record it.
+func applyRequestWithIP(ctx context.Context, body []byte, chain *middleware.SwappableChain, logger *slog.Logger, remoteAddr string) (context.Context, []byte, error) {
+	ctx, ar := middleware.WithAuthResult(ctx)
+	// Extract IP from RemoteAddr (host:port).
+	if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
+		ar.IPAddress = remoteAddr[:idx]
+	} else {
+		ar.IPAddress = remoteAddr
+	}
+	out, err := applyRequest(ctx, body, chain, logger)
+	return ctx, out, err
+}
+
 // applyRequest parses body as a JSON-RPC request and passes it through the middleware chain.
 // Returns (modified body, nil) on success, or (error payload, error) if blocked.
 // Returns body unchanged if not valid JSON or not a request.

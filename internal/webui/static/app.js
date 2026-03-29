@@ -293,8 +293,31 @@
         var nameInput = el("input", { type: "text", placeholder: "Token name", id: "token-name" });
         row.appendChild(el("div", { className: "form-group" }, [el("label", { for: "token-name" }, ["Name"]), nameInput]));
 
-        var expiryInput = el("input", { type: "text", placeholder: "e.g. 24h, 7d", id: "token-expiry" });
-        row.appendChild(el("div", { className: "form-group" }, [el("label", { for: "token-expiry" }, ["Expiry"]), expiryInput]));
+        var expirySelect = el("select", { id: "token-expiry-select", style: "margin-bottom:0.25rem" });
+        [
+          { value: "", label: "Select..." },
+          { value: "1h", label: "1 hour" },
+          { value: "7d", label: "7 days" },
+          { value: "30d", label: "1 month" },
+          { value: "180d", label: "6 months" },
+          { value: "365d", label: "1 year" },
+          { value: "never", label: "Never" },
+          { value: "custom", label: "Custom..." },
+        ].forEach(function (o) {
+          var opt = el("option", { value: o.value }, [o.label]);
+          expirySelect.appendChild(opt);
+        });
+        var expiryInput = el("input", { type: "text", placeholder: "e.g. 24h, 7d, 30m, 60s", id: "token-expiry", style: "display:none" });
+        expirySelect.addEventListener("change", function () {
+          if (expirySelect.value === "custom") {
+            expiryInput.style.display = "";
+            expiryInput.focus();
+          } else {
+            expiryInput.style.display = "none";
+            expiryInput.value = "";
+          }
+        });
+        row.appendChild(el("div", { className: "form-group" }, [el("label", { for: "token-expiry-select" }, ["Expiry"]), expirySelect, expiryInput]));
 
         var createBtn = el("button", { className: "btn btn-primary", onClick: handleCreateToken }, ["Create"]);
         row.appendChild(el("div", { className: "form-group" }, [el("label", null, ["\u00A0"]), createBtn]));
@@ -310,8 +333,8 @@
           var name = nameInput.value.trim();
           if (!name) return;
           var body = { name: name };
-          var exp = expiryInput.value.trim();
-          if (exp) body.expires_in = exp;
+          var exp = expirySelect.value === "custom" ? expiryInput.value.trim() : expirySelect.value;
+          if (exp && exp !== "never") body.expires_in = exp;
 
           fetchAPI("/tokens", { method: "POST", body: JSON.stringify(body) })
             .then(function (res) {

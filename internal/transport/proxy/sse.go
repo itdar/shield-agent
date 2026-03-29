@@ -247,8 +247,8 @@ func (p *SSEProxy) handleMessages(w http.ResponseWriter, r *http.Request) {
 		slog.Int("bytes", len(body)),
 	)
 
-	// Apply middleware chain (auth + logging).
-	body, chainErr := applyRequest(r.Context(), body, p.chain, p.logger)
+	// Apply middleware chain (auth + logging) with client IP.
+	_, body, chainErr := applyRequestWithIP(r.Context(), body, p.chain, p.logger, r.RemoteAddr)
 	if chainErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)

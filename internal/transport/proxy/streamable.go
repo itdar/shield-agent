@@ -80,8 +80,8 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 		slog.Int("bytes", len(body)),
 	)
 
-	// Apply middleware chain (auth + logging).
-	body, chainErr := applyRequest(r.Context(), body, p.chain, p.logger)
+	// Apply middleware chain (auth + logging) with client IP.
+	mwCtx, body, chainErr := applyRequestWithIP(r.Context(), body, p.chain, p.logger, r.RemoteAddr)
 	if chainErr != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -142,7 +142,7 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := applyResponse(r.Context(), respBody, p.chain, p.logger)
+	out := applyResponse(mwCtx, respBody, p.chain, p.logger)
 	if out == nil {
 		out = respBody // if blocked, keep original (passing through is safer than dropping in streamable)
 	}

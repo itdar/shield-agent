@@ -45,13 +45,41 @@ func NewAuthMiddleware(store auth.KeyStore, mode string, logger *slog.Logger, on
 // Name returns the name of this middleware.
 func (a *AuthMiddleware) Name() string { return "auth" }
 
+// authContextKey holds auth result in context for downstream middlewares.
+type authContextKey struct{}
+
+// AuthResult contains the authentication outcome for a request.
+// It is stored as a pointer in context so downstream middlewares (log)
+// can read fields written by auth without requiring ctx to be returned.
+type AuthResult struct {
+	AgentIDHash string
+	Status      string // "verified", "failed", "unsigned", "blocked"
+	IPAddress   string
+}
+
+// WithAuthResult attaches a mutable AuthResult to the context.
+func WithAuthResult(ctx context.Context) (context.Context, *AuthResult) {
+	r := &AuthResult{}
+	return context.WithValue(ctx, authContextKey{}, r), r
+}
+
+// GetAuthResult retrieves the AuthResult pointer from context.
+func GetAuthResult(ctx context.Context) *AuthResult {
+	r, _ := ctx.Value(authContextKey{}).(*AuthResult)
+	return r
+}
+
 // ProcessRequest verifies the request signature and enforces the auth policy.
 func (a *AuthMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Request) (*jsonrpc.Request, error) {
 	agentID, sigHex := extractAuth(req)
 
+	ar := GetAuthResult(ctx)
 	record := func(status string) {
 		if a.onAuth != nil {
 			a.onAuth(status)
+		}
+		if ar != nil {
+			ar.Status = status
 		}
 	}
 
@@ -125,6 +153,9 @@ func (a *AuthMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Reques
 	}
 
 	record("verified")
+	if ar != nil {
+		ar.AgentIDHash = auth.AgentIDHash(agentID)
+	}
 	a.logger.Info("request verified",
 		slog.String("agent_id_hash", auth.AgentIDHash(agentID)),
 		slog.String("method", req.Method),

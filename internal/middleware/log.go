@@ -131,6 +131,16 @@ func (lm *LogMiddleware) ProcessResponse(ctx context.Context, resp *jsonrpc.Resp
 		authStatus = p.authStatus
 	}
 
+	// Read auth result and IP from context (set by auth middleware / transport layer).
+	if ar := GetAuthResult(ctx); ar != nil {
+		if ar.AgentIDHash != "" {
+			agentHash = ar.AgentIDHash
+		}
+		if ar.Status != "" {
+			authStatus = ar.Status
+		}
+	}
+
 	success := resp.Error == nil
 	errorCode := ""
 	if resp.Error != nil {
@@ -138,6 +148,11 @@ func (lm *LogMiddleware) ProcessResponse(ctx context.Context, resp *jsonrpc.Resp
 	}
 
 	now := time.Now().UTC()
+
+	var ipAddr string
+	if ar := GetAuthResult(ctx); ar != nil {
+		ipAddr = ar.IPAddress
+	}
 
 	lm.enqueue(storage.ActionLog{
 		Timestamp:   now,
@@ -149,6 +164,7 @@ func (lm *LogMiddleware) ProcessResponse(ctx context.Context, resp *jsonrpc.Resp
 		PayloadSize: len(resp.Result),
 		AuthStatus:  authStatus,
 		ErrorCode:   errorCode,
+		IPAddress:   ipAddr,
 	})
 
 	if lm.recorder != nil {
