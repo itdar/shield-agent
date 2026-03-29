@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -304,11 +305,14 @@ func TestE2EConcurrentRequests(t *testing.T) {
 	}
 	defer cmd.Process.Kill() //nolint:errcheck
 
+	// Give the child process time to start (race detector makes startup slower).
+	time.Sleep(500 * time.Millisecond)
+
 	const n = 10
 	// Send all requests in one write.
 	var sb strings.Builder
 	for i := 1; i <= n; i++ {
-		sb.WriteString(`{"jsonrpc":"2.0","id":` + string(rune('0'+i)) + `,"method":"m` + string(rune('0'+i)) + `","params":{}}` + "\n")
+		sb.WriteString(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"m%d","params":{}}`, i, i) + "\n")
 	}
 	if _, err := io.WriteString(stdin, sb.String()); err != nil {
 		t.Fatalf("writing requests: %v", err)
