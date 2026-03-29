@@ -90,6 +90,9 @@ func TestE2EPipeline(t *testing.T) {
 	}
 	defer cmd.Process.Kill() //nolint:errcheck
 
+	// Give the child process time to start (race detector makes startup slower).
+	time.Sleep(500 * time.Millisecond)
+
 	// Send a JSON-RPC request.
 	req := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n"
 	if _, err := io.WriteString(stdin, req); err != nil {
