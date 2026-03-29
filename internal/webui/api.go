@@ -247,6 +247,9 @@ func (a *API) handleLogs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if logs == nil {
+		logs = []storage.ActionLog{}
+	}
 
 	writeJSON(w, http.StatusOK, logs)
 }
