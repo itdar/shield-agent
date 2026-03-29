@@ -132,7 +132,7 @@ func (p *StreamableProxy) handleMCP(w http.ResponseWriter, r *http.Request) {
 	// If the response is an SSE stream, relay chunk by chunk and apply middleware.
 	ct := upResp.Header.Get("Content-Type")
 	if strings.Contains(ct, "text/event-stream") {
-		p.relaySSEResponse(w, upResp.Body)
+		p.relaySSEResponse(mwCtx, w, upResp.Body)
 		return
 	}
 
@@ -181,7 +181,7 @@ func (p *StreamableProxy) proxyRaw(w http.ResponseWriter, r *http.Request) {
 
 	ct := upResp.Header.Get("Content-Type")
 	if strings.Contains(ct, "text/event-stream") {
-		p.relaySSEResponse(w, upResp.Body)
+		p.relaySSEResponse(r.Context(), w, upResp.Body)
 		return
 	}
 	io.Copy(w, upResp.Body) //nolint:errcheck
@@ -189,7 +189,7 @@ func (p *StreamableProxy) proxyRaw(w http.ResponseWriter, r *http.Request) {
 
 // relaySSEResponse relays the upstream SSE stream to the client in real time.
 // Applies middleware (ProcessResponse) to the data field of each event.
-func (p *StreamableProxy) relaySSEResponse(w http.ResponseWriter, body io.Reader) {
+func (p *StreamableProxy) relaySSEResponse(ctx context.Context, w http.ResponseWriter, body io.Reader) {
 	flusher, canFlush := w.(http.Flusher)
 	scanner := bufio.NewScanner(body)
 	var lines []string
@@ -208,7 +208,7 @@ func (p *StreamableProxy) relaySSEResponse(w http.ResponseWriter, body io.Reader
 			}
 			if ev.data != "" {
 				// Apply ProcessResponse.
-				data := applyResponse(context.Background(), []byte(ev.data), p.chain, p.logger)
+				data := applyResponse(ctx, []byte(ev.data), p.chain, p.logger)
 				if data == nil {
 					data = []byte(ev.data) // if blocked, keep original
 				}

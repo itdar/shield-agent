@@ -73,6 +73,11 @@ func (lm *LogMiddleware) SetAuthStatus(reqID, status, agentHash string) {
 func (lm *LogMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Request) (*jsonrpc.Request, error) {
 	if req.IsNotification() {
 		now := time.Now().UTC()
+		var ipAddr, authStatus string
+		if ar := GetAuthResult(ctx); ar != nil {
+			ipAddr = ar.IPAddress
+			authStatus = ar.Status
+		}
 		lm.enqueue(storage.ActionLog{
 			Timestamp:   now,
 			AgentIDHash: "",
@@ -80,6 +85,8 @@ func (lm *LogMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Reques
 			Direction:   "in",
 			Success:     true,
 			PayloadSize: len(req.Params),
+			IPAddress:   ipAddr,
+			AuthStatus:  authStatus,
 		})
 		if lm.recorder != nil {
 			lm.recorder.Record(telemetry.Event{
