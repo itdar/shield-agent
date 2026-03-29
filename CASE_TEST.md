@@ -463,15 +463,15 @@ curl http://localhost:9090/metrics | grep shield_agent
 | 3 | proxy SSE | — | SSE upstream 필요 |
 | 4 | Gateway 멀티 upstream | **PASS** | — |
 | 5 | TLS (HTTPS) | **PASS** | — |
-| 6 | 토큰 CLI | **PASS** (발급/목록/stats/폐기) | 토큰 MW 통합 테스트 |
+| 6 | 토큰 CLI | **PARTIAL** (CLI만 확인: 발급/목록/stats/폐기) | 토큰 MW 통합 (Bearer 포함 요청, 쿼터 초과) |
 | 7 | Ed25519 서명 | — | 서명 도구 필요 |
-| 8 | Web UI 키 CRUD | **PASS** | 서명 인증 연동 |
+| 8 | Web UI 키 CRUD | **PARTIAL** (API CRUD만 확인) | 등록된 키로 서명 인증 연동 |
 | 9 | Web UI upstream CRUD | **PASS** | — |
-| 10 | MW 토글 영속화 | **PASS** (토글) | 재시작 후 확인 |
+| 10 | MW 토글 영속화 | **PARTIAL** (토글 동작만 확인) | 재시작 후 상태 유지 확인 |
 | 11 | Rate Limit | **PASS** | — |
 | 12 | IP 차단 | — | proxy IP 추출 확인 |
 | 13 | DID blocklist | — | DID 서명 도구 필요 |
-| 14 | 로그 조회 CLI | **PASS** (실행) | 데이터 있을 때 확인 |
+| 14 | 로그 조회 CLI | **PARTIAL** (CLI 실행만 확인) | 실제 로그 데이터 출력 확인 |
 | 15 | SIGHUP 리로드 | — | 인터랙티브 |
 | 16 | Prometheus 메트릭 | **PASS** | — |
 | 17 | Web UI 대시보드 | — | 브라우저 필요 |
