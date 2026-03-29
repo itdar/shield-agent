@@ -12,6 +12,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"net/http"
+
 	"github.com/itdar/shield-agent/internal/auth"
 	"github.com/itdar/shield-agent/internal/config"
 	"github.com/itdar/shield-agent/internal/middleware"
@@ -19,6 +21,7 @@ import (
 	"github.com/itdar/shield-agent/internal/process"
 	"github.com/itdar/shield-agent/internal/storage"
 	"github.com/itdar/shield-agent/internal/telemetry"
+	"github.com/itdar/shield-agent/internal/webui"
 )
 
 // buildRootCmd constructs the root cobra command (stdio mode).
@@ -179,8 +182,22 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 		}
 	}()
 
-	// 9. Create and start monitor server.
+	// 9. Create and start monitor server with Web UI.
 	monSrv := monitor.New(cfg.Server.MonitorAddr, metrics, logger)
+
+	webuiAPI := webui.NewAPI(webui.APIConfig{
+		DB:         db,
+		TokenStore: nil, // stdio mode has no token store
+		Logger:     logger,
+		GetConfig:  func() config.Config { return cfg },
+		ToggleMW: func(name string, enabled bool) {
+			config.SetMiddlewareEnabled(&cfg, name, enabled)
+		},
+	})
+	monSrv.SetMuxSetup(func(mux *http.ServeMux) {
+		webui.RegisterUI(mux, webuiAPI)
+	})
+
 	monSrv.Start()
 
 	// 10. Start telemetry in background.
