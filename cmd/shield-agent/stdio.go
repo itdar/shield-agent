@@ -21,6 +21,7 @@ import (
 	"github.com/itdar/shield-agent/internal/process"
 	"github.com/itdar/shield-agent/internal/storage"
 	"github.com/itdar/shield-agent/internal/telemetry"
+	"github.com/itdar/shield-agent/internal/token"
 	"github.com/itdar/shield-agent/internal/webui"
 )
 
@@ -185,9 +186,10 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	// 9. Create and start monitor server with Web UI.
 	monSrv := monitor.New(cfg.Server.MonitorAddr, metrics, logger)
 
+	tokenStore := token.NewStore(db.Conn())
 	webuiAPI := webui.NewAPI(webui.APIConfig{
 		DB:         db,
-		TokenStore: nil, // stdio mode has no token store
+		TokenStore: tokenStore,
 		Logger:     logger,
 		GetConfig:  func() config.Config { return cfg },
 		ToggleMW: func(name string, enabled bool) {
