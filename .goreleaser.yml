@@ -42,6 +42,18 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
 
+brews:
+  - repository:
+      owner: itdar
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: .
+    homepage: "https://github.com/itdar/shield-agent"
+    description: "Security middleware proxy for MCP servers and AI agents"
+    license: "MIT"
+    test: |
+      system "#{bin}/shield-agent", "--help"
+
 snapshot:
   name_template: "{{ incpatch .Version }}-next"
 
