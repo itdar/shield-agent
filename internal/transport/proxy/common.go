@@ -40,13 +40,23 @@ func buildUpstreamURL(upstream, reqPath, rawQuery string) string {
 
 // applyRequestWithIP is like applyRequest but injects the client IP into the
 // middleware context so that auth and log middlewares can record it.
-func applyRequestWithIP(ctx context.Context, body []byte, chain *middleware.SwappableChain, logger *slog.Logger, remoteAddr string) (context.Context, []byte, error) {
+func applyRequestWithIP(ctx context.Context, body []byte, chain *middleware.SwappableChain, logger *slog.Logger, remoteAddr string, xForwardedFor string) (context.Context, []byte, error) {
 	ctx, ar := middleware.WithAuthResult(ctx)
-	// Extract IP from RemoteAddr (host:port).
-	if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
-		ar.IPAddress = remoteAddr[:idx]
+	// Prefer X-Forwarded-For (first IP) for proxied requests (ngrok, nginx, etc).
+	if xff := strings.TrimSpace(xForwardedFor); xff != "" {
+		// X-Forwarded-For may contain "client, proxy1, proxy2" — take the first.
+		if idx := strings.Index(xff, ","); idx != -1 {
+			ar.IPAddress = strings.TrimSpace(xff[:idx])
+		} else {
+			ar.IPAddress = xff
+		}
 	} else {
-		ar.IPAddress = remoteAddr
+		// Extract IP from RemoteAddr (host:port).
+		if idx := strings.LastIndex(remoteAddr, ":"); idx != -1 {
+			ar.IPAddress = remoteAddr[:idx]
+		} else {
+			ar.IPAddress = remoteAddr
+		}
 	}
 	out, err := applyRequest(ctx, body, chain, logger)
 	return ctx, out, err
