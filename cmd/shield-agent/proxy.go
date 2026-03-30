@@ -16,7 +16,7 @@ import (
 	"rua/internal/transport/proxy"
 )
 
-// buildProxyCmd는 `mcp-shield proxy` 서브커맨드를 생성한다.
+// buildProxyCmd는 `shield-agent proxy` 서브커맨드를 생성한다.
 func buildProxyCmd(flags *globalFlags) *cobra.Command {
 	var (
 		listenAddr    string
@@ -35,10 +35,10 @@ HTTP 프록시 서버를 실행한다. 인증(AuthMiddleware)과 로깅(LogMiddl
   streamable-http — Streamable HTTP (POST /mcp)
 
 예시 (로컬 fastmcp SSE):
-  mcp-shield proxy --listen :8888 --upstream http://localhost:8000 --transport sse
+  shield-agent proxy --listen :8888 --upstream http://localhost:8000 --transport sse
 
 예시 (클라우드 MCP Streamable HTTP):
-  mcp-shield proxy --listen :8888 --upstream https://mcp.example.com --transport streamable-http`,
+  shield-agent proxy --listen :8888 --upstream https://mcp.example.com --transport streamable-http`,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runProxy(cmd.Context(), flags, listenAddr, upstream, transportType)
@@ -62,7 +62,7 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		return err
 	}
 
-	logger.Info("starting mcp-shield proxy",
+	logger.Info("starting shield-agent proxy",
 		"transport", transportType,
 		"listen", listenAddr,
 		"upstream", upstream,

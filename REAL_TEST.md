@@ -1,12 +1,12 @@
-# mcp-shield 실서버(클라우드) 테스트 가이드
+# shield-agent 실서버(클라우드) 테스트 가이드
 
-클라우드에 Docker로 fastmcp가 외부 도메인으로 실행 중일 때 mcp-shield를 끼워 넣는 방법.
+클라우드에 Docker로 fastmcp가 외부 도메인으로 실행 중일 때 shield-agent를 끼워 넣는 방법.
 로컬과 마찬가지로 두 가지 모드 모두 사용 가능하다.
 
 | 모드 | 구조 | 언제 쓰나 |
 |------|------|-----------|
-| **HTTP Proxy** | 로컬 또는 클라우드에 mcp-shield를 별도 포트로 띄움 | 클라우드 MCP가 HTTP(S)로 이미 돌고 있을 때 |
-| **stdio Wrapping** | mcp-shield가 MCP 서버를 자식 프로세스로 직접 실행 | SSH 접속 가능하거나 같은 서버에 있을 때 |
+| **HTTP Proxy** | 로컬 또는 클라우드에 shield-agent를 별도 포트로 띄움 | 클라우드 MCP가 HTTP(S)로 이미 돌고 있을 때 |
+| **stdio Wrapping** | shield-agent가 MCP 서버를 자식 프로세스로 직접 실행 | SSH 접속 가능하거나 같은 서버에 있을 때 |
 
 ---
 
@@ -18,7 +18,7 @@
 Claude Desktop (로컬)
       │ SSE 또는 Streamable HTTP
       ▼
-mcp-shield proxy  (localhost:8888, 로컬 실행)  ← 인증·로깅
+shield-agent proxy  (localhost:8888, 로컬 실행)  ← 인증·로깅
       │ HTTPS
       ▼
 fastmcp 서버  (https://mcp.example.com, 클라우드 Docker)
@@ -28,9 +28,9 @@ fastmcp 서버  (https://mcp.example.com, 클라우드 Docker)
 # 클라우드 서버 접근 확인
 curl -N https://mcp.example.com/sse
 
-# mcp-shield 로컬 실행
-mcp-shield proxy \
-  --config ~/mcp-shield-real.yaml \
+# shield-agent 로컬 실행
+shield-agent proxy \
+  --config ~/shield-agent-real.yaml \
   --listen :8888 \
   --upstream https://mcp.example.com \
   --transport sse          # 또는 streamable-http
@@ -49,13 +49,13 @@ Claude Desktop 설정:
 
 ---
 
-### 시나리오 B — 클라우드에 mcp-shield도 함께 배포
+### 시나리오 B — 클라우드에 shield-agent도 함께 배포
 
 ```
 Claude Desktop (로컬)
       │ HTTPS
       ▼
-mcp-shield proxy  (https://proxy.example.com, 클라우드)  ← 인증·로깅
+shield-agent proxy  (https://proxy.example.com, 클라우드)  ← 인증·로깅
       │ 내부 네트워크
       ▼
 fastmcp 서버  (컨테이너 내부)
@@ -74,38 +74,38 @@ services:
     expose:
       - "8000"   # 외부 노출 안 함
 
-  mcp-shield:
+  shield-agent:
     build:
       context: .
-      dockerfile: Dockerfile.mcp-shield
+      dockerfile: Dockerfile.shield-agent
     command: >
-      mcp-shield proxy
-        --config /etc/mcp-shield/config.yaml
+      shield-agent proxy
+        --config /etc/shield-agent/config.yaml
         --listen :8888
         --upstream http://fastmcp:8000
         --transport sse
     volumes:
-      - ./mcp-shield-config.yaml:/etc/mcp-shield/config.yaml
-      - mcp-shield-data:/data
+      - ./shield-agent-config.yaml:/etc/shield-agent/config.yaml
+      - shield-agent-data:/data
     ports:
       - "8888:8888"
     depends_on:
       - fastmcp
 
 volumes:
-  mcp-shield-data:
+  shield-agent-data:
 ```
 
-`Dockerfile.mcp-shield`:
+`Dockerfile.shield-agent`:
 ```dockerfile
 FROM golang:1.22-alpine AS builder
 WORKDIR /src
 COPY . .
-RUN go build -o /mcp-shield ./cmd/mcp-shield
+RUN go build -o /shield-agent ./cmd/shield-agent
 
 FROM alpine:3.19
-COPY --from=builder /mcp-shield /usr/local/bin/mcp-shield
-ENTRYPOINT ["mcp-shield"]
+COPY --from=builder /shield-agent /usr/local/bin/shield-agent
+ENTRYPOINT ["shield-agent"]
 ```
 
 Claude Desktop 설정 (nginx/TLS 앞단 가정):
@@ -124,13 +124,13 @@ Claude Desktop 설정 (nginx/TLS 앞단 가정):
 ## 방식 2: stdio Wrapping 모드
 
 클라우드 서버에 SSH 접속이 가능하거나, 같은 서버에서 MCP 서버를 직접 실행할 때.
-mcp-shield가 MCP 서버를 자식 프로세스로 띄우고 stdio를 가로챈다.
+shield-agent가 MCP 서버를 자식 프로세스로 띄우고 stdio를 가로챈다.
 
 ```
 Claude Desktop (로컬, SSH 터널 또는 직접 실행)
       │ stdio
       ▼
-mcp-shield  (클라우드 서버에서 실행)  ← 인증·로깅
+shield-agent  (클라우드 서버에서 실행)  ← 인증·로깅
       │ stdin/stdout 파이프
       ▼
 python3 server.py (자식 프로세스)
@@ -145,29 +145,29 @@ python3 server.py (자식 프로세스)
       "command": "ssh",
       "args": [
         "user@mcp.example.com",
-        "mcp-shield --config /etc/mcp-shield/config.yaml python3 /app/server.py"
+        "shield-agent --config /etc/shield-agent/config.yaml python3 /app/server.py"
       ]
     }
   }
 }
 ```
 
-### 클라우드 서버에 mcp-shield 설치
+### 클라우드 서버에 shield-agent 설치
 
 ```bash
 # 클라우드 서버에서 빌드
 git clone <repo> rua && cd rua
-go build -o /usr/local/bin/mcp-shield ./cmd/mcp-shield
+go build -o /usr/local/bin/shield-agent ./cmd/shield-agent
 
 # 또는 미리 빌드한 바이너리 업로드
-scp /tmp/mcp-shield user@mcp.example.com:/usr/local/bin/
+scp /tmp/shield-agent user@mcp.example.com:/usr/local/bin/
 ```
 
 ---
 
 ## 설정 파일 (클라우드용)
 
-`mcp-shield-config.yaml`:
+`shield-agent-config.yaml`:
 
 ```yaml
 server:
@@ -175,7 +175,7 @@ server:
 
 security:
   mode: "closed"                    # 클라우드는 closed 권장
-  key_store_path: "/etc/mcp-shield/keys.yaml"
+  key_store_path: "/etc/shield-agent/keys.yaml"
 
 logging:
   level: "info"
@@ -185,7 +185,7 @@ telemetry:
   enabled: false
 
 storage:
-  db_path: "/data/mcp-shield.db"
+  db_path: "/data/shield-agent.db"
   retention_days: 30
 ```
 
@@ -228,17 +228,17 @@ CMD ["python", "server.py"]
 ### 로그 조회
 
 ```bash
-# HTTP Proxy 모드 — mcp-shield가 돌고 있는 서버에서
-mcp-shield logs --config /etc/mcp-shield/config.yaml --last 50 --format table
+# HTTP Proxy 모드 — shield-agent가 돌고 있는 서버에서
+shield-agent logs --config /etc/shield-agent/config.yaml --last 50 --format table
 
 # 최근 1시간 필터
-mcp-shield logs --config /etc/mcp-shield/config.yaml --since 1h --format json
+shield-agent logs --config /etc/shield-agent/config.yaml --since 1h --format json
 ```
 
 ### 모니터링
 
 ```bash
-# mcp-shield 서버 내부에서
+# shield-agent 서버 내부에서
 curl -s http://localhost:9090/healthz | python3 -m json.tool
 curl -s http://localhost:9090/metrics | grep mcp_shield
 ```
@@ -252,7 +252,7 @@ curl -s http://localhost:9090/metrics | grep mcp_shield
 ```yaml
 security:
   mode: "closed"
-  key_store_path: "/etc/mcp-shield/keys.yaml"
+  key_store_path: "/etc/shield-agent/keys.yaml"
 ```
 
 `keys.yaml`:

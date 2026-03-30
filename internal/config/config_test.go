@@ -28,7 +28,7 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestLoadMissingFile(t *testing.T) {
-	cfg, err := Load("/nonexistent/path/mcp-shield.yaml", nil)
+	cfg, err := Load("/nonexistent/path/shield-agent.yaml", nil)
 	if err != nil {
 		t.Fatalf("expected no error for missing file, got: %v", err)
 	}

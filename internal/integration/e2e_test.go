@@ -30,7 +30,7 @@ for line in sys.stdin:
         pass
 `
 
-// buildMCPShield compiles the mcp-shield binary into tmpDir and returns its path.
+// buildMCPShield compiles the shield-agent binary into tmpDir and returns its path.
 func buildMCPShield(t *testing.T, tmpDir string) string {
 	t.Helper()
 	wd, err := os.Getwd()
@@ -39,11 +39,11 @@ func buildMCPShield(t *testing.T, tmpDir string) string {
 	}
 	// internal/integration → ../../ is module root
 	moduleRoot := filepath.Join(wd, "..", "..")
-	bin := filepath.Join(tmpDir, "mcp-shield")
+	bin := filepath.Join(tmpDir, "shield-agent")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/mcp-shield")
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/shield-agent")
 	cmd.Dir = moduleRoot
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -241,7 +241,7 @@ func writeExitScript(t *testing.T, tmpDir string) string {
 	return script
 }
 
-// TestE2EChildExitsImmediately verifies that mcp-shield propagates a non-zero
+// TestE2EChildExitsImmediately verifies that shield-agent propagates a non-zero
 // exit code when the wrapped command exits immediately.
 func TestE2EChildExitsImmediately(t *testing.T) {
 	t.Parallel()

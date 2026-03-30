@@ -70,7 +70,7 @@ func Defaults() Config {
 			Epsilon:       1.0,
 		},
 		Storage: StorageConfig{
-			DBPath:        "mcp-shield.db",
+			DBPath:        "shield-agent.db",
 			RetentionDays: 30,
 		},
 	}

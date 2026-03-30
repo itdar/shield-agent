@@ -1,11 +1,11 @@
-# mcp-shield 로컬 테스트 가이드 — MCP JSON-RPC
+# shield-agent 로컬 테스트 가이드 — MCP JSON-RPC
 
 MCP JSON-RPC 프로토콜(stdio / SSE / Streamable HTTP)에 대한 로컬 테스트 가이드.
 
 | 모드 | 언제 쓰나 | 명령어 |
 |------|-----------|--------|
-| **HTTP Proxy** | fastmcp 등이 이미 HTTP로 돌고 있을 때 앞에 끼어들기 | `mcp-shield proxy --upstream ...` |
-| **stdio Wrapping** | MCP 서버를 직접 띄우면서 stdio를 가로채기 | `mcp-shield python3 server.py` |
+| **HTTP Proxy** | fastmcp 등이 이미 HTTP로 돌고 있을 때 앞에 끼어들기 | `shield-agent proxy --upstream ...` |
+| **stdio Wrapping** | MCP 서버를 직접 띄우면서 stdio를 가로채기 | `shield-agent python3 server.py` |
 
 ---
 
@@ -14,22 +14,22 @@ MCP JSON-RPC 프로토콜(stdio / SSE / Streamable HTTP)에 대한 로컬 테스
 ```bash
 pip install fastmcp
 
-# mcp-shield 빌드
+# shield-agent 빌드
 cd /Users/gino/Gin/src/RaaS/rua
-go build -o /tmp/mcp-shield ./cmd/mcp-shield
+go build -o /tmp/shield-agent ./cmd/shield-agent
 ```
 
 ---
 
 ## 방식 1: HTTP Proxy 모드
 
-이미 돌고 있는 fastmcp 서버 앞에 mcp-shield를 끼워 넣는다.
+이미 돌고 있는 fastmcp 서버 앞에 shield-agent를 끼워 넣는다.
 
 ```
 Claude Desktop
       │ SSE 또는 Streamable HTTP (:8888)
       ▼
-mcp-shield proxy  ← 인증·로깅 적용
+shield-agent proxy  ← 인증·로깅 적용
       │
       ▼
 fastmcp 서버 (:8000, 이미 실행 중)
@@ -63,22 +63,22 @@ python3 /tmp/my_server.py
 # 확인: curl -N http://localhost:8000/sse
 ```
 
-### 1-2. mcp-shield proxy 실행
+### 1-2. shield-agent proxy 실행
 
 ```bash
 # simple example (streamable-http)
-/tmp/mcp-shield proxy --upstream http://localhost:8000
+/tmp/shield-agent proxy --upstream http://localhost:8000
 
 # SSE transport
-/tmp/mcp-shield proxy \
-  --config /tmp/mcp-shield-local.yaml \
+/tmp/shield-agent proxy \
+  --config /tmp/shield-agent-local.yaml \
   --listen :8888 \
   --upstream http://localhost:8000 \
   --transport sse
 
 # Streamable HTTP transport (서버가 streamable-http 모드인 경우)
-/tmp/mcp-shield proxy \
-  --config /tmp/mcp-shield-local.yaml \
+/tmp/shield-agent proxy \
+  --config /tmp/shield-agent-local.yaml \
   --listen :8888 \
   --upstream http://localhost:8000 \
   --transport streamable-http
@@ -113,14 +113,14 @@ Streamable HTTP인 경우:
 
 ## 방식 2: stdio Wrapping 모드
 
-mcp-shield가 MCP 서버를 **직접 자식 프로세스로 실행**하고 stdin/stdout을 가로챈다.
-별도 포트 불필요. Claude Desktop이 stdio 방식으로 mcp-shield를 실행하면 mcp-shield가 실제 서버를 띄운다.
+shield-agent가 MCP 서버를 **직접 자식 프로세스로 실행**하고 stdin/stdout을 가로챈다.
+별도 포트 불필요. Claude Desktop이 stdio 방식으로 shield-agent를 실행하면 shield-agent가 실제 서버를 띄운다.
 
 ```
 Claude Desktop
       │ stdio (command 실행)
       ▼
-mcp-shield  ← 인증·로깅 적용
+shield-agent  ← 인증·로깅 적용
       │ stdin/stdout 파이프
       ▼
 python3 server.py (자식 프로세스)
@@ -149,15 +149,15 @@ if __name__ == "__main__":
 
 ### 2-2. Claude Desktop 설정
 
-Claude Desktop이 mcp-shield를 직접 실행하고, mcp-shield가 python을 띄운다:
+Claude Desktop이 shield-agent를 직접 실행하고, shield-agent가 python을 띄운다:
 
 ```json
 {
   "mcpServers": {
     "local-wrapped": {
-      "command": "/tmp/mcp-shield",
+      "command": "/tmp/shield-agent",
       "args": [
-        "--config", "/tmp/mcp-shield-local.yaml",
+        "--config", "/tmp/shield-agent-local.yaml",
         "python3", "/tmp/my_server_stdio.py"
       ]
     }
@@ -168,8 +168,8 @@ Claude Desktop이 mcp-shield를 직접 실행하고, mcp-shield가 python을 띄
 ### 2-3. 터미널에서 직접 테스트
 
 ```bash
-/tmp/mcp-shield \
-  --config /tmp/mcp-shield-local.yaml \
+/tmp/shield-agent \
+  --config /tmp/shield-agent-local.yaml \
   python3 /tmp/my_server_stdio.py
 
 # 그 다음 stdin에 직접 JSON-RPC 입력:
@@ -180,7 +180,7 @@ Claude Desktop이 mcp-shield를 직접 실행하고, mcp-shield가 python을 띄
 
 ## 설정 파일
 
-`/tmp/mcp-shield-local.yaml`:
+`/tmp/shield-agent-local.yaml`:
 
 ```yaml
 server:
@@ -198,7 +198,7 @@ telemetry:
   enabled: false
 
 storage:
-  db_path: "/tmp/mcp-shield-local.db"
+  db_path: "/tmp/shield-agent-local.db"
   retention_days: 7
 ```
 
@@ -248,8 +248,8 @@ func main() {
 ### 로그 조회
 
 ```bash
-/tmp/mcp-shield logs \
-  --config /tmp/mcp-shield-local.yaml \
+/tmp/shield-agent logs \
+  --config /tmp/shield-agent-local.yaml \
   --last 20 \
   --format table
 ```
@@ -287,7 +287,7 @@ curl -N http://localhost:8000/sse   # fastmcp 실행 중인지 확인
 
 **stdio Wrapping — 서버가 안 뜸:**
 ```bash
-# mcp-shield 없이 직접 실행해서 오류 확인
+# shield-agent 없이 직접 실행해서 오류 확인
 python3 /tmp/my_server_stdio.py
 ```
 

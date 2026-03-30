@@ -1,6 +1,6 @@
-# rua (mcp-shield) — 현재 구현된 기능 목록
+# rua (shield-agent) — 현재 구현된 기능 목록
 
-`mcp-shield`는 Go로 작성된 MCP 보안 미들웨어 프록시. MCP 서버와 AI 에이전트 사이에 투명하게 끼어들어 JSON-RPC 메시지를 인터셉트한다.
+`shield-agent`는 Go로 작성된 MCP 보안 미들웨어 프록시. MCP 서버와 AI 에이전트 사이에 투명하게 끼어들어 JSON-RPC 메시지를 인터셉트한다.
 
 ---
 
@@ -8,15 +8,15 @@
 
 | 모드 | 명령 | 대상 |
 |------|------|------|
-| **stdio 모드** | `mcp-shield <command> [args...]` | stdio 기반 MCP 서버 프로세스 래핑 |
-| **proxy 모드** | `mcp-shield proxy --upstream <url>` | HTTP 기반 MCP 서버 앞단 프록시 |
+| **stdio 모드** | `shield-agent <command> [args...]` | stdio 기반 MCP 서버 프로세스 래핑 |
+| **proxy 모드** | `shield-agent proxy --upstream <url>` | HTTP 기반 MCP 서버 앞단 프록시 |
 
 ---
 
 ## 1. stdio 모드 — 프로세스 래핑
 
 ```
-mcp-shield [flags] <command> [args...]
+shield-agent [flags] <command> [args...]
 ```
 
 - 자식 프로세스(MCP 서버)를 직접 실행하고 stdin/stdout을 파이프로 연결
@@ -30,7 +30,7 @@ mcp-shield [flags] <command> [args...]
 ## 2. proxy 모드 — HTTP MCP 프록시
 
 ```
-mcp-shield proxy --listen :8888 --upstream <url> --transport <sse|streamable-http>
+shield-agent proxy --listen :8888 --upstream <url> --transport <sse|streamable-http>
 ```
 
 HTTP 기반 MCP 서버 앞단에 위치하는 리버스 프록시. 동일한 미들웨어 체인(Auth → Log)이 적용된다.
@@ -144,7 +144,7 @@ Ed25519 서명 기반 에이전트 인증.
 
 ## 7. SQLite 스토리지
 
-파일: `mcp-shield.db` (기본값)
+파일: `shield-agent.db` (기본값)
 
 ### 스키마 (`action_logs`)
 | 컬럼 | 설명 |
@@ -168,7 +168,7 @@ Ed25519 서명 기반 에이전트 인증.
 ## 8. 로그 조회 CLI
 
 ```
-mcp-shield logs [flags]
+shield-agent logs [flags]
 ```
 
 | 플래그 | 설명 |
@@ -225,12 +225,12 @@ mcp-shield logs [flags]
 | security.key_store_path | `keys.yaml` | `MCP_SHIELD_KEY_STORE_PATH` |
 | logging.level | `info` | `MCP_SHIELD_LOG_LEVEL` |
 | logging.format | `json` | `MCP_SHIELD_LOG_FORMAT` |
-| storage.db_path | `mcp-shield.db` | `MCP_SHIELD_DB_PATH` |
+| storage.db_path | `shield-agent.db` | `MCP_SHIELD_DB_PATH` |
 | storage.retention_days | `30` | `MCP_SHIELD_RETENTION_DAYS` |
 | telemetry.enabled | `false` | `MCP_SHIELD_TELEMETRY_ENABLED` |
 
 ### 전역 CLI 플래그 (모든 서브커맨드 공통)
-- `--config <path>` (기본: `mcp-shield.yaml`)
+- `--config <path>` (기본: `shield-agent.yaml`)
 - `--log-level debug|info|warn|error`
 - `--verbose` (= `--log-level debug`)
 - `--telemetry`
@@ -317,7 +317,7 @@ Ed25519 서명 기반 에이전트 인증. 헤더: `X-Agent-ID`, `X-Agent-Signat
 
 미들웨어 레이어(Auth + Log)는 구현 완료. 아래는 미구현 잔여 항목:
 
-- A2A HTTP 프록시 transport — 에이전트가 `HTTPS_PROXY=mcp-shield-proxy`로 트래픽을 라우팅
+- A2A HTTP 프록시 transport — 에이전트가 `HTTPS_PROXY=shield-agent-proxy`로 트래픽을 라우팅
 - 프로토콜 감지: Content-Type, 요청 구조로 A2A / JSON-RPC / REST 자동 구분
 - 의도(intent) 검증: 허용된 에이전트 ID 조합, 허용된 action 타입 화이트리스트
 - 양방향 신뢰 모델: 호출하는 에이전트와 받는 에이전트 모두 검증

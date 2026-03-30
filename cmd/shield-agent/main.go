@@ -28,7 +28,7 @@ type globalFlags struct {
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "mcp-shield: %v\n", err)
+		fmt.Fprintf(os.Stderr, "shield-agent: %v\n", err)
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.ExitCode())
@@ -157,7 +157,7 @@ func initFromFlags(flags *globalFlags) (config.Config, *slog.Logger, error) {
 	}
 
 	logger := logging.InitLogger(cfg.Logging)
-	logger = logging.WithComponent(logger, "mcp-shield")
+	logger = logging.WithComponent(logger, "shield-agent")
 
 	return cfg, logger, nil
 }

@@ -1,5 +1,5 @@
-# mcp-shield example configuration
-# Copy this file to mcp-shield.yaml and adjust values as needed.
+# shield-agent example configuration
+# Copy this file to shield-agent.yaml and adjust values as needed.
 # All values shown here are the defaults.
 #
 # Environment variable overrides use the MCP_SHIELD_ prefix, e.g.:
@@ -42,7 +42,7 @@ telemetry:
 
 storage:
   # Path to the SQLite database used to store action logs.
-  db_path: "mcp-shield.db"
+  db_path: "shield-agent.db"
 
   # Number of days to retain log records before automatic deletion.
   retention_days: 30

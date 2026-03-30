@@ -15,7 +15,7 @@ func TestBuildRootCmdFlags(t *testing.T) {
 		name         string
 		defaultValue string
 	}{
-		{"config", "mcp-shield.yaml"},
+		{"config", "shield-agent.yaml"},
 		{"log-level", ""},
 		{"monitor-addr", ""},
 	}
@@ -94,7 +94,7 @@ func TestBuildLogsCmdFlags(t *testing.T) {
 }
 
 func TestInitFromFlagsDefaults(t *testing.T) {
-	flags := &globalFlags{configFile: "/nonexistent/mcp-shield.yaml"}
+	flags := &globalFlags{configFile: "/nonexistent/shield-agent.yaml"}
 	cfg, logger, err := initFromFlags(flags)
 	if err != nil {
 		t.Fatalf("initFromFlags returned error: %v", err)
@@ -109,7 +109,7 @@ func TestInitFromFlagsDefaults(t *testing.T) {
 
 func TestInitFromFlagsVerbose(t *testing.T) {
 	flags := &globalFlags{
-		configFile: "/nonexistent/mcp-shield.yaml",
+		configFile: "/nonexistent/shield-agent.yaml",
 		verbose:    true,
 	}
 	cfg, _, err := initFromFlags(flags)
@@ -123,7 +123,7 @@ func TestInitFromFlagsVerbose(t *testing.T) {
 
 func TestInitFromFlagsLogLevel(t *testing.T) {
 	flags := &globalFlags{
-		configFile: "/nonexistent/mcp-shield.yaml",
+		configFile: "/nonexistent/shield-agent.yaml",
 		logLevel:   "error",
 	}
 	cfg, _, err := initFromFlags(flags)
@@ -138,7 +138,7 @@ func TestInitFromFlagsLogLevel(t *testing.T) {
 func TestRunWrapperNoChild(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	err := runWrapper(ctx, &globalFlags{configFile: "/nonexistent/mcp-shield.yaml"}, []string{})
+	err := runWrapper(ctx, &globalFlags{configFile: "/nonexistent/shield-agent.yaml"}, []string{})
 	if err == nil {
 		t.Fatal("expected error for empty child args, got nil")
 	}

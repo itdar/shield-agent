@@ -1,16 +1,16 @@
-# mcp-shield 로컬 테스트 가이드 — HTTP API 인터셉트
+# shield-agent 로컬 테스트 가이드 — HTTP API 인터셉트
 
-에이전트가 외부 HTTP REST API를 호출할 때 mcp-shield가 중간에서 인증·로깅하는 테스트 가이드.
+에이전트가 외부 HTTP REST API를 호출할 때 shield-agent가 중간에서 인증·로깅하는 테스트 가이드.
 
 > **현재 상태:** `internal/middleware/httpapi/` 패키지 구현 완료.
-> HTTP API 전용 프록시 커맨드(`mcp-shield api-proxy`)는 미구현 — 향후 추가 예정.
+> HTTP API 전용 프록시 커맨드(`shield-agent api-proxy`)는 미구현 — 향후 추가 예정.
 
 ---
 
 ## 시나리오 개요
 
 에이전트가 외부 REST API(GitHub API, Slack API, 사내 서비스 등)를 호출할 때
-mcp-shield가 리버스 프록시로 끼어들어 에이전트 신원 검증과 호출 로깅을 수행한다.
+shield-agent가 리버스 프록시로 끼어들어 에이전트 신원 검증과 호출 로깅을 수행한다.
 
 ```
 Agent
@@ -18,7 +18,7 @@ Agent
   │  X-Agent-ID: agent-backend
   │  X-Agent-Signature: <hex sig>
   ▼
-mcp-shield api-proxy (:8890)  ← AuthMiddleware + LogMiddleware
+shield-agent api-proxy (:8890)  ← AuthMiddleware + LogMiddleware
   │  Authorization: Bearer <github_token>  (자격증명 주입 — 미래 기능)
   ▼
 api.github.com (실제 API 서버)
@@ -90,7 +90,7 @@ func main() {
     hash := h.Sum(nil)
     sig := ed25519.Sign(priv, hash)
 
-    // 4. mcp-shield 프록시로 요청 (api.github.com 대신)
+    // 4. shield-agent 프록시로 요청 (api.github.com 대신)
     target := "http://localhost:8890" + path
     req, _ := http.NewRequest(method, target, bytes.NewReader(bodyJSON))
     req.Header.Set("Content-Type", "application/json")
@@ -162,7 +162,7 @@ keys:
 
 ## 설정 파일
 
-`/tmp/mcp-shield-httpapi.yaml`:
+`/tmp/shield-agent-httpapi.yaml`:
 
 ```yaml
 server:
@@ -180,7 +180,7 @@ telemetry:
   enabled: false
 
 storage:
-  db_path: "/tmp/mcp-shield-httpapi.db"
+  db_path: "/tmp/shield-agent-httpapi.db"
   retention_days: 7
 ```
 
@@ -210,8 +210,8 @@ level=WARN  msg="HTTP API signature verification failed" agent_id_hash=abc123...
 ### 로그 조회 (method 컬럼 = "POST /path" 형식으로 기록됨)
 
 ```bash
-/tmp/mcp-shield logs \
-  --config /tmp/mcp-shield-httpapi.yaml \
+/tmp/shield-agent logs \
+  --config /tmp/shield-agent-httpapi.yaml \
   --last 20 \
   --format table
 ```

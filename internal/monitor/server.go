@@ -123,7 +123,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"service":   "mcp-shield",
+		"service":   "shield-agent",
 		"endpoints": []string{"/healthz", "/metrics"},
 	})
 }

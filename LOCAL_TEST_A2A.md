@@ -1,9 +1,9 @@
-# mcp-shield 로컬 테스트 가이드 — A2A (Agent-to-Agent)
+# shield-agent 로컬 테스트 가이드 — A2A (Agent-to-Agent)
 
 Google A2A Protocol 기반 에이전트 간 통신 인터셉트 테스트 가이드.
 
 > **현재 상태:** `internal/middleware/a2a/` 패키지 구현 완료.
-> A2A 전용 프록시 커맨드(`mcp-shield a2a-proxy`)는 미구현 — 향후 추가 예정.
+> A2A 전용 프록시 커맨드(`shield-agent a2a-proxy`)는 미구현 — 향후 추가 예정.
 
 ---
 
@@ -17,7 +17,7 @@ Agent A
   │  X-Agent-ID: agent-a
   │  X-A2A-Signature: <hex sig>
   ▼
-mcp-shield a2a-proxy  ← AuthMiddleware + LogMiddleware
+shield-agent a2a-proxy  ← AuthMiddleware + LogMiddleware
   │
   ▼
 Agent B (A2A server)
@@ -141,7 +141,7 @@ keys:
 
 ## 설정 파일
 
-`/tmp/mcp-shield-a2a.yaml`:
+`/tmp/shield-agent-a2a.yaml`:
 
 ```yaml
 server:
@@ -159,7 +159,7 @@ telemetry:
   enabled: false
 
 storage:
-  db_path: "/tmp/mcp-shield-a2a.db"
+  db_path: "/tmp/shield-agent-a2a.db"
   retention_days: 7
 ```
 
@@ -190,8 +190,8 @@ level=WARN  msg="A2A signature verification failed" agent_id_hash=abc123... path
 ### 로그 조회
 
 ```bash
-/tmp/mcp-shield logs \
-  --config /tmp/mcp-shield-a2a.yaml \
+/tmp/shield-agent logs \
+  --config /tmp/shield-agent-a2a.yaml \
   --last 20 \
   --format table
 ```

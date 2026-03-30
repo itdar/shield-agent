@@ -23,7 +23,7 @@ const signatureHeader = "X-Agent-Signature"
 
 // AuthMiddleware validates agent identity on intercepted HTTP API calls.
 //
-// Agents include X-Agent-ID and X-Agent-Signature headers so mcp-shield can
+// Agents include X-Agent-ID and X-Agent-Signature headers so shield-agent can
 // verify who is making the outbound API call before forwarding it upstream.
 //
 // mode "closed": reject requests with invalid or missing signatures (HTTP 401).

@@ -20,14 +20,14 @@ import (
 // buildRootCmd constructs the root cobra command (stdio mode).
 func buildRootCmd(flags *globalFlags) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "mcp-shield [flags] <command> [args...]",
+		Use:   "shield-agent [flags] <command> [args...]",
 		Short: "MCP security middleware — wraps an MCP server process",
-		Long: `mcp-shield transparently wraps an MCP server process, intercepting
+		Long: `shield-agent transparently wraps an MCP server process, intercepting
 JSON-RPC messages for authentication, logging, and telemetry.
 
 Example:
-  mcp-shield python server.py
-  mcp-shield --verbose node server.js --port 8080`,
+  shield-agent python server.py
+  shield-agent --verbose node server.js --port 8080`,
 
 		Args: cobra.ArbitraryArgs,
 
@@ -40,7 +40,7 @@ Example:
 
 	// Persistent (global) flags — available to all sub-commands.
 	pf := cmd.PersistentFlags()
-	pf.StringVar(&flags.configFile, "config", "mcp-shield.yaml", "config file path")
+	pf.StringVar(&flags.configFile, "config", "shield-agent.yaml", "config file path")
 	pf.StringVar(&flags.logLevel, "log-level", "", "log level: debug/info/warn/error")
 	pf.BoolVar(&flags.telemetry, "telemetry", false, "enable anonymous telemetry")
 	pf.BoolVar(&flags.verbose, "verbose", false, "verbose output (alias for --log-level debug)")
@@ -58,11 +58,11 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	}
 
 	if len(childArgs) == 0 {
-		return errors.New("no child command specified — usage: mcp-shield <command> [args...]")
+		return errors.New("no child command specified — usage: shield-agent <command> [args...]")
 	}
 
 	printBanner(cfg.Security.Mode, cfg.Server.MonitorAddr, "stdio")
-	logger.Info("starting mcp-shield",
+	logger.Info("starting shield-agent",
 		"mode", cfg.Security.Mode,
 		"monitor_addr", cfg.Server.MonitorAddr,
 		"child", childArgs,
