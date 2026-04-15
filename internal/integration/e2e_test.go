@@ -15,6 +15,39 @@ import (
 	"time"
 )
 
+// sharedBin is the path to a single shield-agent binary built once by TestMain.
+var sharedBin string
+
+func TestMain(m *testing.M) {
+	tmp, err := os.MkdirTemp("", "shield-e2e-*")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "creating temp dir: %v\n", err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(tmp)
+
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "getwd: %v\n", err)
+		os.Exit(1)
+	}
+	moduleRoot := filepath.Join(wd, "..", "..")
+	bin := filepath.Join(tmp, "shield-agent")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/shield-agent")
+	cmd.Dir = moduleRoot
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "go build failed: %v\n%s\n", err, out)
+		os.Exit(1)
+	}
+	sharedBin = bin
+
+	os.Exit(m.Run())
+}
+
 const echoServerScript = `#!/usr/bin/env python3
 import sys, json
 for line in sys.stdin:
@@ -31,26 +64,13 @@ for line in sys.stdin:
         pass
 `
 
-// buildMCPShield compiles the shield-agent binary into tmpDir and returns its path.
-func buildMCPShield(t *testing.T, tmpDir string) string {
+// getBin returns the pre-built shield-agent binary path.
+func getBin(t *testing.T) string {
 	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
+	if sharedBin == "" {
+		t.Fatal("sharedBin not set — TestMain did not run")
 	}
-	// internal/integration → ../../ is module root
-	moduleRoot := filepath.Join(wd, "..", "..")
-	bin := filepath.Join(tmpDir, "shield-agent")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", bin, "./cmd/shield-agent")
-	cmd.Dir = moduleRoot
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("go build failed: %v\n%s", err, out)
-	}
-	return bin
+	return sharedBin
 }
 
 // writeEchoScript writes the Python echo server to a temp file and returns its path.
@@ -71,7 +91,7 @@ func TestE2EPipeline(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	bin := buildMCPShield(t, tmpDir)
+	bin := getBin(t)
 	script := writeEchoScript(t, tmpDir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -167,7 +187,7 @@ func TestE2EPipelineInvalidJSON(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	bin := buildMCPShield(t, tmpDir)
+	bin := getBin(t)
 	script := writeEchoScript(t, tmpDir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -243,8 +263,7 @@ func TestE2EPipelineInvalidJSON(t *testing.T) {
 func TestE2ECommandNotFound(t *testing.T) {
 	t.Parallel()
 
-	tmpDir := t.TempDir()
-	bin := buildMCPShield(t, tmpDir)
+	bin := getBin(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -277,7 +296,7 @@ func TestE2EChildExitsImmediately(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	bin := buildMCPShield(t, tmpDir)
+	bin := getBin(t)
 	script := writeExitScript(t, tmpDir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -307,7 +326,7 @@ func TestE2EConcurrentRequests(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
-	bin := buildMCPShield(t, tmpDir)
+	bin := getBin(t)
 	script := writeEchoScript(t, tmpDir)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

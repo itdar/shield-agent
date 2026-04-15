@@ -168,6 +168,10 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("opening sqlite db %q: %w", path, err)
 	}
 
+	// SQLite supports only one concurrent writer. Limiting the pool to a
+	// single connection avoids SQLITE_BUSY under concurrent read/write load.
+	conn.SetMaxOpenConns(1)
+
 	if err := conn.Ping(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("pinging sqlite db: %w", err)
