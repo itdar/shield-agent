@@ -24,10 +24,12 @@ Go로 작성된 **~10MB 단일 바이너리**. 설치 30초, 설정 1분.
 - [설치](#설치)
 - [사용 케이스별 빠른 시작](#사용-케이스별-빠른-시작)
 - [인증 방식 선택 가이드](#인증-방식-선택-가이드)
+- [프로토콜 자동 감지](#프로토콜-자동-감지)
 - [배포 패턴](#배포-패턴)
 - [설정 레퍼런스](#설정-레퍼런스)
 - [모니터링](#모니터링)
 - [Web UI](#web-ui)
+- [Agent 평판 시스템](#agent-평판-시스템)
 - [로드맵](#로드맵)
 
 ---
@@ -286,6 +288,35 @@ security:
 
 ---
 
+## 프로토콜 자동 감지
+
+shield-agent는 각 요청의 통신 프로토콜을 자동으로 감지합니다:
+
+| 프로토콜 | 감지 신호 |
+|----------|----------|
+| **MCP** (JSON-RPC 2.0) | `Mcp-Session-Id` 헤더, 또는 A2A가 아닌 메서드의 JSON-RPC |
+| **A2A** (Google Agent-to-Agent) | `X-A2A-Signature` 헤더, 또는 `tasks/*` 메서드의 JSON-RPC |
+| **HTTP API** (REST/GraphQL) | JSON-RPC 구조 없음 |
+
+기본적으로 감지는 자동으로 이루어집니다. upstream별로 프로토콜 힌트를 직접 설정할 수도 있습니다:
+
+```yaml
+upstreams:
+  - name: mcp-server
+    url: http://10.0.1.1:8000
+    protocol: mcp        # skip detection, always MCP
+
+  - name: a2a-agent
+    url: http://10.0.2.1:3000
+    protocol: a2a        # skip detection, always A2A
+
+  - name: mixed
+    url: http://10.0.3.1:4000
+    protocol: auto       # default: detect per request
+```
+
+---
+
 ## 배포 패턴
 
 ### 패턴 1: 사이드카 (서버마다 1개)
@@ -442,6 +473,77 @@ shield-agent logs --format json                # JSON 출력
 
 ---
 
+## Agent 평판 시스템
+
+shield-agent는 에이전트의 행동을 추적하고 신뢰 점수를 계산하여 rate limit을 동적으로 조정합니다.
+
+### 동작 원리
+
+```
+Action Logs → Score Calculator → Trust Level → Dynamic Rate Limit
+  (SQLite)    (every 5 min)     trusted/      (2x, 1x, 0.25x, 0x)
+                                 normal/
+                                 suspicious/
+                                 blocked
+```
+
+### 평판 시스템 활성화
+
+```yaml
+# shield-agent.yaml
+reputation:
+  enabled: true
+  recalc_interval: 300    # recalculate every 5 minutes
+  window_hours: 24        # look at last 24 hours of activity
+  thresholds:
+    trusted: 0.8
+    normal: 0.4
+    suspicious: 0.1
+  rate_multipliers:
+    trusted: 2.0          # 2x base rate limit
+    normal: 1.0           # base rate
+    suspicious: 0.25      # 1/4 base rate
+    blocked: 0.0          # reject all requests
+```
+
+### CLI
+
+```bash
+# List all agent reputations
+shield-agent reputation
+
+# Query a specific agent
+shield-agent reputation <agent-hash>
+
+# JSON output
+shield-agent reputation --format json
+```
+
+### 평판 API
+
+평판 시스템이 활성화되면 모니터 서버(`:9090`)에서 다음 엔드포인트를 사용할 수 있습니다:
+
+| Method | Path | 설명 |
+|--------|------|------|
+| `GET` | `/api/reputation` | 전체 에이전트 점수 목록 |
+| `GET` | `/api/reputation/{hash}` | 특정 에이전트 점수 조회 |
+| `GET` | `/api/reputation/stats` | 집계 통계 |
+| `POST` | `/api/reputation/report` | 원격 인스턴스의 점수 수신 |
+| `POST` | `/api/reputation/recalculate` | 즉시 재계산 트리거 |
+
+### 신뢰 점수 요소
+
+| 요소 | 가중치 | 설명 |
+|------|--------|------|
+| 성공률 | +0.35 | 성공한 요청의 비율 |
+| 에러 페널티 | -0.25 | 실패한 요청의 비율 |
+| 인증 실패 | -0.15 | 서명 검증 실패 횟수 |
+| 볼륨 보너스 | +0.10 | 높은 트래픽 = 더 많은 신뢰 데이터 |
+| 레이턴시 | -0.10 | 느린 응답은 신뢰도를 낮춤 |
+| Rate limit 초과 | -0.05 | rate limit을 초과한 횟수 |
+
+---
+
 ## 로드맵
 
 자세한 내용은 [ROADMAP.md](ROADMAP.md)를 참고하세요.
@@ -452,7 +554,7 @@ shield-agent logs --format json                # JSON 출력
 | Phase 2 — 배포 & 설치 | **완료** | Docker, Homebrew, GoReleaser, CI/CD |
 | Phase 3 — 토큰 & Web UI | **완료** | 토큰 관리, Web UI 대시보드 |
 | Phase 3.5 — Gateway & DID | **완료** | Multi-upstream 라우팅, DID blocklist, verified 모드 |
-| Phase 4 — 고도화 | 예정 | Agent 평판, 프로토콜 자동 감지, WebSocket |
+| Phase 4 — 고도화 | **일부 완료** | Agent 평판 ✅, 프로토콜 자동 감지 ✅, WebSocket (예정) |
 
 ---
 

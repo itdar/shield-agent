@@ -24,10 +24,12 @@ AI Agent 时代的安全中间件。
 - [安装](#安装)
 - [按使用场景快速开始](#按使用场景快速开始)
 - [认证方式选择指南](#认证方式选择指南)
+- [协议自动检测](#协议自动检测)
 - [部署模式](#部署模式)
 - [配置参考](#配置参考)
 - [监控](#监控)
 - [Web UI](#web-ui)
+- [Agent 信誉系统](#agent-信誉系统)
 - [开发路线图](#开发路线图)
 
 ---
@@ -286,6 +288,37 @@ security:
 
 ---
 
+## 协议自动检测
+
+shield-agent 能够逐请求自动识别 MCP、A2A 和 HTTP API 协议。可在配置文件中指定 `protocol: auto`，也可为每个上游服务器单独设置协议类型。
+
+### 检测信号
+
+| 协议 | 检测条件 |
+|------|----------|
+| MCP | 存在 `Mcp-Session-Id` 请求头，或 JSON-RPC 且方法非 A2A |
+| A2A | 存在 `X-A2A-Signature` 请求头，或 JSON-RPC 且方法为 `tasks/*` |
+| HTTP API | 不含 JSON-RPC 结构 |
+
+### 配置示例
+
+```yaml
+upstreams:
+  - name: mcp-server
+    url: http://10.0.1.1:8000
+    protocol: mcp
+  - name: a2a-agent
+    url: http://10.0.2.1:3000
+    protocol: a2a
+  - name: mixed
+    url: http://10.0.3.1:4000
+    protocol: auto
+```
+
+设置 `protocol: auto`（默认值）时，shield-agent 会检查每个请求的请求头和 payload 结构来判断协议类型，并应用相应的中间件链。
+
+---
+
 ## 部署模式
 
 ### 模式 1：Sidecar（每台服务器独立部署）
@@ -442,6 +475,55 @@ shield-agent logs --format json                # JSON 格式输出
 
 ---
 
+## Agent 信誉系统
+
+shield-agent 根据 Agent 的历史请求记录计算信任评分，并据此自动调整频率限制。
+
+### 工作流程
+
+```
+动作日志 → 评分计算 → 信任等级 → 频率限制
+```
+
+### 启用配置
+
+```yaml
+reputation:
+  enabled: true
+  window: 24h          # 评分计算的统计时间窗口
+  min_requests: 10     # 触发评分计算所需的最低请求数
+```
+
+### CLI 命令
+
+```bash
+shield-agent reputation                  # 查看所有 Agent 的信任评分列表
+shield-agent reputation <hash>           # 查看指定 Agent 的评分详情
+```
+
+### API 端点
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/reputation` | 获取所有 Agent 的评分列表 |
+| GET | `/api/reputation/{hash}` | 获取指定 Agent 的评分详情 |
+| POST | `/api/reputation/{hash}/reset` | 重置指定 Agent 的评分 |
+| GET | `/api/reputation/config` | 查看信誉系统配置 |
+
+### 信任评分计算因素
+
+| 因素 | 权重 | 说明 |
+|------|------|------|
+| 成功率 | +0.35 | 请求成功的比例 |
+| 错误惩罚 | -0.25 | 错误响应导致的扣分 |
+| 超出频率限制 | -0.20 | 触发频率限制导致的扣分 |
+| 使用持续性 | +0.15 | 持续稳定使用的加分 |
+| 异常检测 | -0.05 | 检测到异常模式时的扣分 |
+
+评分范围为 0.0 至 1.0，低于阈值的 Agent 将自动受到更严格的频率限制。
+
+---
+
 ## 开发路线图
 
 详情请参阅 [ROADMAP.md](ROADMAP.md)。
@@ -452,7 +534,7 @@ shield-agent logs --format json                # JSON 格式输出
 | Phase 2 — 部署与安装 | **已完成** | Docker、Homebrew、GoReleaser、CI/CD |
 | Phase 3 — Token 与 Web UI | **已完成** | Token 管理、Web UI 仪表板 |
 | Phase 3.5 — Gateway 与 DID | **已完成** | 多上游路由、DID 黑名单、verified 模式 |
-| Phase 4 — 高级功能 | 计划中 | Agent 信誉系统、协议自动检测、WebSocket |
+| Phase 4 — 高级功能 | **部分完成** | Agent 信誉 ✅、协议自动检测 ✅、WebSocket（计划中） |
 
 ---
 

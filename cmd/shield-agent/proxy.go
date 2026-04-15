@@ -16,6 +16,7 @@ import (
 	"github.com/itdar/shield-agent/internal/config"
 	"github.com/itdar/shield-agent/internal/middleware"
 	"github.com/itdar/shield-agent/internal/monitor"
+	"github.com/itdar/shield-agent/internal/reputation"
 	"github.com/itdar/shield-agent/internal/storage"
 	"github.com/itdar/shield-agent/internal/telemetry"
 	"github.com/itdar/shield-agent/internal/token"
@@ -120,7 +121,13 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		logger.Info("applied DB middleware overrides", "count", len(overrides))
 	}
 
-	// 6. Build middleware chain from config.
+	// 6. Reputation provider (if enabled).
+	var repProvider *reputation.LocalProvider
+	if cfg.Reputation.Enabled {
+		repProvider = reputation.NewLocalProvider(db.Conn(), logger, cfg.Reputation)
+	}
+
+	// 7. Build middleware chain from config.
 	deps := middleware.Dependencies{
 		DB:           db,
 		Logger:       logger,
@@ -130,6 +137,9 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		SecMode:      cfg.Security.Mode,
 		TokenStore:   tokenStore,
 		DIDBlocklist: cfg.Security.DIDBlocklist,
+	}
+	if repProvider != nil {
+		deps.ReputationProvider = repProvider
 	}
 	chain, closeMiddlewares, err := middleware.BuildChain(cfg.Middlewares, deps)
 	if err != nil {
@@ -199,6 +209,9 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	})
 	monSrv.SetMuxSetup(func(mux *http.ServeMux) {
 		webui.RegisterUI(mux, webuiAPI)
+		if repProvider != nil {
+			reputation.RegisterAPI(mux, reputation.NewAPI(repProvider, logger))
+		}
 	})
 
 	monSrv.Start()
@@ -207,6 +220,10 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	telCtx, telCancel := context.WithCancel(ctx)
 	defer telCancel()
 	go telCol.Run(telCtx)
+
+	if repProvider != nil {
+		go repProvider.RunRecalcLoop(telCtx)
+	}
 
 	// Apply CLI TLS overrides on top of config.
 	if tlsCert != "" {
@@ -218,12 +235,13 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 
 	// 8. HTTP auth dependencies for A2A / HTTP API protocol support.
 	httpDeps := &proxy.HTTPAuthDeps{
-		Store:    cachedStore,
-		Mode:     cfg.Security.Mode,
-		Logger:   logger,
-		DB:       db,
-		Metrics:  metrics,
-		Recorder: telCol,
+		Store:      cachedStore,
+		Mode:       cfg.Security.Mode,
+		Logger:     logger,
+		DB:         db,
+		Metrics:    metrics,
+		Recorder:   telCol,
+		Reputation: repProvider,
 	}
 
 	// 9. Select transport handler.

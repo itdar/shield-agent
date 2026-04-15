@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -21,12 +22,18 @@ import (
 
 // HTTPAuthDeps holds dependencies for A2A and HTTP API authentication in proxy mode.
 type HTTPAuthDeps struct {
-	Store    auth.KeyStore
-	Mode     string // "open", "verified", "closed"
-	Logger   *slog.Logger
-	DB       *storage.DB
-	Metrics  *monitor.Metrics
-	Recorder *telemetry.Collector
+	Store      auth.KeyStore
+	Mode       string // "open", "verified", "closed"
+	Logger     *slog.Logger
+	DB         *storage.DB
+	Metrics    *monitor.Metrics
+	Recorder   *telemetry.Collector
+	Reputation ReputationProvider // nil = no reputation checks
+}
+
+// ReputationProvider is the subset of reputation.Provider needed by the proxy.
+type ReputationProvider interface {
+	GetRateMultiplier(ctx context.Context, agentIDHash string) float64
 }
 
 // ProtocolAwareHandler wraps an MCP transport handler (SSE or Streamable HTTP)
