@@ -216,7 +216,17 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		cfg.Server.TLSKey = tlsKey
 	}
 
-	// 8. Select transport handler.
+	// 8. HTTP auth dependencies for A2A / HTTP API protocol support.
+	httpDeps := &proxy.HTTPAuthDeps{
+		Store:    cachedStore,
+		Mode:     cfg.Security.Mode,
+		Logger:   logger,
+		DB:       db,
+		Metrics:  metrics,
+		Recorder: telCol,
+	}
+
+	// 9. Select transport handler.
 	allowedOrigins := cfg.Server.CORSAllowedOrigins
 	var handler http.Handler
 
@@ -227,25 +237,29 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 			if t == "" {
 				t = transportType
 			}
+			var mcpHandler http.Handler
 			switch t {
 			case "sse":
-				return proxy.NewSSEProxy(u.URL, swappableChain, logger, allowedOrigins).Handler()
+				mcpHandler = proxy.NewSSEProxy(u.URL, swappableChain, logger, allowedOrigins).Handler()
 			default:
-				return proxy.NewStreamableProxy(u.URL, swappableChain, logger, allowedOrigins).Handler()
+				mcpHandler = proxy.NewStreamableProxy(u.URL, swappableChain, logger, allowedOrigins).Handler()
 			}
+			return proxy.NewProtocolAwareHandler(mcpHandler, u.URL, proxy.ParseProtocolHint(u.Protocol), httpDeps, logger, allowedOrigins)
 		}
 		handler = proxy.NewRouter(cfg.Upstreams, factory, logger)
 		logger.Info("gateway mode enabled", "upstreams", len(cfg.Upstreams))
 	} else if upstream != "" {
 		// Legacy single-upstream mode.
+		var mcpHandler http.Handler
 		switch transportType {
 		case "sse":
-			handler = proxy.NewSSEProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
+			mcpHandler = proxy.NewSSEProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
 		case "streamable-http", "streamable_http", "http":
-			handler = proxy.NewStreamableProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
+			mcpHandler = proxy.NewStreamableProxy(upstream, swappableChain, logger, allowedOrigins).Handler()
 		default:
 			return fmt.Errorf("unknown transport %q — use sse or streamable-http", transportType)
 		}
+		handler = proxy.NewProtocolAwareHandler(mcpHandler, upstream, proxy.ProtoAuto, httpDeps, logger, allowedOrigins)
 	} else {
 		return fmt.Errorf("either --upstream flag or upstreams config is required")
 	}

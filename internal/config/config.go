@@ -29,6 +29,7 @@ type UpstreamConfig struct {
 	URL           string        `yaml:"url"`
 	Match         UpstreamMatch `yaml:"match"`
 	Transport     string        `yaml:"transport"`        // "sse" or "streamable-http"
+	Protocol      string        `yaml:"protocol"`         // "auto", "mcp", "a2a", "http" (default: auto)
 	TLSSkipVerify bool          `yaml:"tls_skip_verify"`  // skip upstream cert verification
 	TLSClientCert string        `yaml:"tls_client_cert"`  // mTLS client cert path
 	TLSClientKey  string        `yaml:"tls_client_key"`   // mTLS client key path
@@ -305,6 +306,13 @@ func Validate(cfg *Config) error {
 		names[u.Name] = true
 		if u.Transport != "" && u.Transport != "sse" && u.Transport != "streamable-http" {
 			return fmt.Errorf("upstream %q: transport must be sse or streamable-http, got %q", u.Name, u.Transport)
+		}
+		if u.Protocol != "" {
+			switch u.Protocol {
+			case "auto", "mcp", "a2a", "http":
+			default:
+				return fmt.Errorf("upstream %q: protocol must be auto/mcp/a2a/http, got %q", u.Name, u.Protocol)
+			}
 		}
 	}
 
