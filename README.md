@@ -24,10 +24,12 @@ A **~10MB single binary** written in Go. 30 seconds to install, 1 minute to conf
 - [Installation](#installation)
 - [Quick Start by Use Case](#quick-start-by-use-case)
 - [Authentication Method Selection Guide](#authentication-method-selection-guide)
+- [Protocol Auto-Detection](#protocol-auto-detection)
 - [Deployment Patterns](#deployment-patterns)
 - [Configuration Reference](#configuration-reference)
 - [Monitoring](#monitoring)
 - [Web UI](#web-ui)
+- [Agent Reputation](#agent-reputation)
 - [Roadmap](#roadmap)
 
 ---
@@ -286,6 +288,35 @@ security:
 
 ---
 
+## Protocol Auto-Detection
+
+shield-agent automatically detects the communication protocol for each request:
+
+| Protocol | Detection Signal |
+|----------|-----------------|
+| **MCP** (JSON-RPC 2.0) | `Mcp-Session-Id` header, or JSON-RPC with non-A2A method |
+| **A2A** (Google Agent-to-Agent) | `X-A2A-Signature` header, or JSON-RPC with `tasks/*` method |
+| **HTTP API** (REST/GraphQL) | No JSON-RPC structure detected |
+
+Detection is automatic by default. You can also set per-upstream hints:
+
+```yaml
+upstreams:
+  - name: mcp-server
+    url: http://10.0.1.1:8000
+    protocol: mcp        # skip detection, always MCP
+
+  - name: a2a-agent
+    url: http://10.0.2.1:3000
+    protocol: a2a        # skip detection, always A2A
+
+  - name: mixed
+    url: http://10.0.3.1:4000
+    protocol: auto       # default: detect per request
+```
+
+---
+
 ## Deployment Patterns
 
 ### Pattern 1: Sidecar (one per server)
@@ -442,6 +473,77 @@ Access at `http://localhost:9090/ui`.
 
 ---
 
+## Agent Reputation
+
+shield-agent tracks agent behavior and computes trust scores to dynamically adjust rate limits.
+
+### How it works
+
+```
+Action Logs → Score Calculator → Trust Level → Dynamic Rate Limit
+  (SQLite)    (every 5 min)     trusted/      (2x, 1x, 0.25x, 0x)
+                                 normal/
+                                 suspicious/
+                                 blocked
+```
+
+### Enable reputation
+
+```yaml
+# shield-agent.yaml
+reputation:
+  enabled: true
+  recalc_interval: 300    # recalculate every 5 minutes
+  window_hours: 24        # look at last 24 hours of activity
+  thresholds:
+    trusted: 0.8
+    normal: 0.4
+    suspicious: 0.1
+  rate_multipliers:
+    trusted: 2.0          # 2x base rate limit
+    normal: 1.0           # base rate
+    suspicious: 0.25      # 1/4 base rate
+    blocked: 0.0          # reject all requests
+```
+
+### CLI
+
+```bash
+# List all agent reputations
+shield-agent reputation
+
+# Query a specific agent
+shield-agent reputation <agent-hash>
+
+# JSON output
+shield-agent reputation --format json
+```
+
+### Reputation API
+
+When reputation is enabled, the following endpoints are available on the monitor server (`:9090`):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/reputation` | List all agent scores |
+| `GET` | `/api/reputation/{hash}` | Query single agent score |
+| `GET` | `/api/reputation/stats` | Aggregate statistics |
+| `POST` | `/api/reputation/report` | Accept scores from remote instances |
+| `POST` | `/api/reputation/recalculate` | Trigger immediate recalculation |
+
+### Trust score factors
+
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| Success rate | +0.35 | Percentage of successful requests |
+| Error penalty | -0.25 | Percentage of failed requests |
+| Auth failures | -0.15 | Failed signature verifications |
+| Volume bonus | +0.10 | Higher volume = more trust data |
+| Latency | -0.10 | Slow responses reduce trust |
+| Rate limit hits | -0.05 | Exceeding rate limits |
+
+---
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for details.
@@ -452,7 +554,7 @@ See [ROADMAP.md](ROADMAP.md) for details.
 | Phase 2 — Deployment & Installation | **Done** | Docker, Homebrew, GoReleaser, CI/CD |
 | Phase 3 — Token & Web UI | **Done** | Token management, Web UI dashboard |
 | Phase 3.5 — Gateway & DID | **Done** | Multi-upstream routing, DID blocklist, verified mode |
-| Phase 4 — Advanced | Planned | Agent reputation, protocol auto-detection, WebSocket |
+| Phase 4 — Advanced | **Partial** | Agent reputation ✅, protocol auto-detection ✅, WebSocket (planned) |
 
 ---
 

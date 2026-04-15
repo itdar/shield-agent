@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/itdar/shield-agent/internal/jsonrpc"
+	"github.com/itdar/shield-agent/internal/reputation"
 )
 
 // GuardMiddleware enforces rate limits, request size limits, IP-based access control,
@@ -23,6 +24,7 @@ type GuardMiddleware struct {
 	onReject       func() // called when a request is rejected by rate limit
 	bruteForce     *bruteForceTracker
 	validateJSON   bool
+	reputation     reputation.Provider // nil = no reputation-based adjustment
 }
 
 // GuardConfig holds configuration for the guard middleware.
@@ -133,10 +135,32 @@ func (g *GuardMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Reque
 		}
 	}
 
-	// Rate limiting keyed by method.
+	// Rate limiting keyed by method, with reputation-based adjustment.
 	if g.limiter != nil {
 		key := req.Method
-		if !g.limiter.allow(key) {
+		limit := g.limiter.maxRequests
+
+		if g.reputation != nil {
+			if ar := GetAuthResult(ctx); ar != nil && ar.AgentIDHash != "" {
+				multiplier := g.reputation.GetRateMultiplier(ctx, ar.AgentIDHash)
+				if multiplier == 0 {
+					g.logger.Warn("blocked by reputation",
+						slog.String("agent_id_hash", ar.AgentIDHash),
+						slog.String("method", req.Method),
+					)
+					if g.onReject != nil {
+						g.onReject()
+					}
+					return nil, fmt.Errorf("blocked by reputation system")
+				}
+				limit = int(float64(limit) * multiplier)
+				if limit < 1 {
+					limit = 1
+				}
+			}
+		}
+
+		if !g.limiter.allowWithLimit(key, limit) {
 			g.logger.Warn("rate limit exceeded",
 				slog.String("method", req.Method),
 			)
@@ -148,6 +172,11 @@ func (g *GuardMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Reque
 	}
 
 	return req, nil
+}
+
+// SetReputation sets the reputation provider for dynamic rate limiting.
+func (g *GuardMiddleware) SetReputation(p reputation.Provider) {
+	g.reputation = p
 }
 
 // RecordFailure records a failed request for brute force tracking.
@@ -220,6 +249,11 @@ func newRateLimiter(maxRequests int, window time.Duration) *rateLimiter {
 }
 
 func (rl *rateLimiter) allow(key string) bool {
+	return rl.allowWithLimit(key, rl.maxRequests)
+}
+
+// allowWithLimit checks the rate limit using a dynamic limit value.
+func (rl *rateLimiter) allowWithLimit(key string, limit int) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
@@ -230,7 +264,7 @@ func (rl *rateLimiter) allow(key string) bool {
 		return true
 	}
 
-	if b.count >= rl.maxRequests {
+	if b.count >= limit {
 		return false
 	}
 	b.count++

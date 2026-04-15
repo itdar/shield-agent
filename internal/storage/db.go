@@ -135,6 +135,28 @@ CREATE TABLE IF NOT EXISTS upstreams (
 	created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );`,
 	},
+	{
+		version: 9,
+		sql: `
+CREATE TABLE IF NOT EXISTS reputation_scores (
+	agent_id_hash   TEXT PRIMARY KEY,
+	trust_level     TEXT NOT NULL DEFAULT 'normal',
+	trust_score     REAL NOT NULL DEFAULT 0.5,
+	success_rate    REAL NOT NULL DEFAULT 0.0,
+	error_rate      REAL NOT NULL DEFAULT 0.0,
+	avg_latency_ms  REAL NOT NULL DEFAULT 0.0,
+	request_count   INTEGER NOT NULL DEFAULT 0,
+	rate_limit_hits INTEGER NOT NULL DEFAULT 0,
+	auth_failures   INTEGER NOT NULL DEFAULT 0,
+	first_seen      DATETIME,
+	last_seen       DATETIME,
+	computed_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	window_hours    INTEGER NOT NULL DEFAULT 24,
+	source          TEXT NOT NULL DEFAULT 'local'
+);
+CREATE INDEX IF NOT EXISTS idx_reputation_trust_level ON reputation_scores (trust_level);
+CREATE INDEX IF NOT EXISTS idx_reputation_computed_at ON reputation_scores (computed_at);`,
+	},
 }
 
 // Open opens (or creates) a SQLite database at path, enables WAL mode, and

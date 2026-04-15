@@ -7,6 +7,7 @@ import (
 	"github.com/itdar/shield-agent/internal/auth"
 	"github.com/itdar/shield-agent/internal/config"
 	"github.com/itdar/shield-agent/internal/monitor"
+	"github.com/itdar/shield-agent/internal/reputation"
 	"github.com/itdar/shield-agent/internal/storage"
 	"github.com/itdar/shield-agent/internal/telemetry"
 	"github.com/itdar/shield-agent/internal/token"
@@ -14,14 +15,15 @@ import (
 
 // Dependencies holds shared resources needed by middleware factories.
 type Dependencies struct {
-	DB           *storage.DB
-	Logger       *slog.Logger
-	Metrics      *monitor.Metrics
-	KeyStore     auth.KeyStore
-	TelCol       *telemetry.Collector
-	SecMode      string // "open", "verified", or "closed"
-	TokenStore   *token.Store
-	DIDBlocklist []string
+	DB                 *storage.DB
+	Logger             *slog.Logger
+	Metrics            *monitor.Metrics
+	KeyStore           auth.KeyStore
+	TelCol             *telemetry.Collector
+	SecMode            string // "open", "verified", or "closed"
+	TokenStore         *token.Store
+	DIDBlocklist       []string
+	ReputationProvider reputation.Provider // nil = disabled
 }
 
 // BuildChain creates a middleware Chain from config entries and dependencies.
@@ -122,6 +124,9 @@ func createMiddleware(entry config.MiddlewareEntry, deps Dependencies) (Middlewa
 				deps.Metrics.RateLimitRejected.WithLabelValues("unknown").Inc()
 			}
 		})
+		if deps.ReputationProvider != nil {
+			mw.SetReputation(deps.ReputationProvider)
+		}
 		return mw, nil, nil
 	case "log":
 		onMsg := func(direction, method string, latencyMs float64) {

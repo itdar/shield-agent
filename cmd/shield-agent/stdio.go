@@ -19,6 +19,7 @@ import (
 	"github.com/itdar/shield-agent/internal/middleware"
 	"github.com/itdar/shield-agent/internal/monitor"
 	"github.com/itdar/shield-agent/internal/process"
+	"github.com/itdar/shield-agent/internal/reputation"
 	"github.com/itdar/shield-agent/internal/storage"
 	"github.com/itdar/shield-agent/internal/telemetry"
 	"github.com/itdar/shield-agent/internal/token"
@@ -120,7 +121,13 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 		logger.Info("applied DB middleware overrides", "count", len(overrides))
 	}
 
-	// 6. Build middleware chain from config.
+	// 6. Reputation provider (if enabled).
+	var repProvider *reputation.LocalProvider
+	if cfg.Reputation.Enabled {
+		repProvider = reputation.NewLocalProvider(db.Conn(), logger, cfg.Reputation)
+	}
+
+	// 7. Build middleware chain from config.
 	deps := middleware.Dependencies{
 		DB:           db,
 		Logger:       logger,
@@ -129,6 +136,9 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 		TelCol:       telCol,
 		SecMode:      cfg.Security.Mode,
 		DIDBlocklist: cfg.Security.DIDBlocklist,
+	}
+	if repProvider != nil {
+		deps.ReputationProvider = repProvider
 	}
 	chain, closeMiddlewares, err := middleware.BuildChain(cfg.Middlewares, deps)
 	if err != nil {
@@ -198,14 +208,21 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	})
 	monSrv.SetMuxSetup(func(mux *http.ServeMux) {
 		webui.RegisterUI(mux, webuiAPI)
+		if repProvider != nil {
+			reputation.RegisterAPI(mux, reputation.NewAPI(repProvider, logger))
+		}
 	})
 
 	monSrv.Start()
 
-	// 10. Start telemetry in background.
+	// 10. Start telemetry and reputation in background.
 	telCtx, telCancel := context.WithCancel(ctx)
 	defer telCancel()
 	go telCol.Run(telCtx)
+
+	if repProvider != nil {
+		go repProvider.RunRecalcLoop(telCtx)
+	}
 
 	// 11. Run child process with middleware.
 	runErr := process.RunWithMiddleware(ctx, childArgs, logger, swappableChain, metrics, monSrv)

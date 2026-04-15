@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/itdar/shield-agent/internal/reputation"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,6 +30,7 @@ type UpstreamConfig struct {
 	URL           string        `yaml:"url"`
 	Match         UpstreamMatch `yaml:"match"`
 	Transport     string        `yaml:"transport"`        // "sse" or "streamable-http"
+	Protocol      string        `yaml:"protocol"`         // "auto", "mcp", "a2a", "http" (default: auto)
 	TLSSkipVerify bool          `yaml:"tls_skip_verify"`  // skip upstream cert verification
 	TLSClientCert string        `yaml:"tls_client_cert"`  // mTLS client cert path
 	TLSClientKey  string        `yaml:"tls_client_key"`   // mTLS client key path
@@ -41,6 +43,7 @@ type Config struct {
 	Logging     LoggingConfig     `yaml:"logging"`
 	Telemetry   TelemetryConfig   `yaml:"telemetry"`
 	Storage     StorageConfig     `yaml:"storage"`
+	Reputation  reputation.Config `yaml:"reputation,omitempty"`
 	Middlewares []MiddlewareEntry `yaml:"middlewares,omitempty"`
 	Upstreams   []UpstreamConfig  `yaml:"upstreams,omitempty"`
 }
@@ -108,6 +111,7 @@ func Defaults() Config {
 			DBPath:        "shield-agent.db",
 			RetentionDays: 30,
 		},
+		Reputation: reputation.DefaultConfig(),
 		Middlewares: []MiddlewareEntry{
 			{Name: "auth", Enabled: boolPtr(true)},
 			{Name: "guard", Enabled: boolPtr(true)},
@@ -209,6 +213,24 @@ func applyEnv(cfg *Config) {
 			cfg.Storage.RetentionDays = n
 		}
 	}
+	if v := os.Getenv("SHIELD_AGENT_REPUTATION_ENABLED"); v != "" {
+		cfg.Reputation.Enabled = parseBool(v, cfg.Reputation.Enabled)
+	}
+	if v := os.Getenv("SHIELD_AGENT_REPUTATION_RECALC_INTERVAL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Reputation.RecalcInterval = n
+		}
+	}
+	if v := os.Getenv("SHIELD_AGENT_REPUTATION_WINDOW_HOURS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Reputation.WindowHours = n
+		}
+	}
+	if v := os.Getenv("SHIELD_AGENT_REPUTATION_CACHE_TTL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			cfg.Reputation.CacheTTL = n
+		}
+	}
 }
 
 // applyCLI merges explicit CLI key/value overrides into cfg.
@@ -305,6 +327,13 @@ func Validate(cfg *Config) error {
 		names[u.Name] = true
 		if u.Transport != "" && u.Transport != "sse" && u.Transport != "streamable-http" {
 			return fmt.Errorf("upstream %q: transport must be sse or streamable-http, got %q", u.Name, u.Transport)
+		}
+		if u.Protocol != "" {
+			switch u.Protocol {
+			case "auto", "mcp", "a2a", "http":
+			default:
+				return fmt.Errorf("upstream %q: protocol must be auto/mcp/a2a/http, got %q", u.Name, u.Protocol)
+			}
 		}
 	}
 
