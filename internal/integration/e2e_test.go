@@ -73,6 +73,14 @@ func getBin(t *testing.T) string {
 	return sharedBin
 }
 
+// isolateCmd sets the command's working directory to tmpDir and assigns a
+// random monitor port so parallel test processes don't share the same SQLite
+// database or fight over the default :9090 monitor port.
+func isolateCmd(cmd *exec.Cmd, tmpDir string) {
+	cmd.Dir = tmpDir
+	cmd.Env = append(os.Environ(), "SHIELD_AGENT_MONITOR_ADDR=127.0.0.1:0")
+}
+
 // writeEchoScript writes the Python echo server to a temp file and returns its path.
 func writeEchoScript(t *testing.T, tmpDir string) string {
 	t.Helper()
@@ -98,6 +106,7 @@ func TestE2EPipeline(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, bin, "--verbose", "python3", script)
+	isolateCmd(cmd, tmpDir)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("StdinPipe: %v", err)
@@ -195,6 +204,7 @@ func TestE2EPipelineInvalidJSON(t *testing.T) {
 
 	// Use a combined stderr reader so we can detect any pass-through.
 	cmd := exec.CommandContext(ctx, bin, "python3", script)
+	isolateCmd(cmd, tmpDir)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("StdinPipe: %v", err)
@@ -269,6 +279,7 @@ func TestE2ECommandNotFound(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, bin, "this-command-does-not-exist-xyzzy")
+	isolateCmd(cmd, t.TempDir())
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected non-zero exit for non-existent command, got nil")
@@ -303,6 +314,7 @@ func TestE2EChildExitsImmediately(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, bin, "python3", script)
+	isolateCmd(cmd, tmpDir)
 	err := cmd.Run()
 	if err == nil {
 		t.Fatal("expected non-zero exit, got nil")
@@ -333,6 +345,7 @@ func TestE2EConcurrentRequests(t *testing.T) {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, bin, "--verbose", "python3", script)
+	isolateCmd(cmd, tmpDir)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("StdinPipe: %v", err)
