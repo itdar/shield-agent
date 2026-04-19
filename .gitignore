@@ -23,3 +23,6 @@ CLAUDE.md
 HELP.md
 
 .DS_STORE
+docs/business-proposal.md
+scripts/make_intro_gif.py
+scripts/make_intro_gif_en.py
