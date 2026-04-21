@@ -82,3 +82,67 @@ middlewares:
       # validate_jsonrpc: true
   - name: log
     enabled: true
+
+# -----------------------------------------------------------------------------
+# Egress forward-proxy (Phase 1: metadata-only)
+# -----------------------------------------------------------------------------
+# When enabled, shield-agent runs a forward HTTP proxy that captures outbound
+# agent traffic. Phase 1 performs CONNECT tunneling with metadata-only capture
+# (destination, timing, byte counts). TLS bodies are NEVER decrypted in this
+# phase — set egress.mitm_hosts (Phase 2) to opt in per-host TLS MITM.
+#
+# Run in one of two ways:
+#   1) Dedicated process:   shield-agent egress --listen :8889
+#   2) Alongside ingress:   shield-agent proxy --with-egress
+#
+# Rollback note: if you downgrade to a shield-agent version that predates the
+# egress feature, remove this whole "egress:" section first — older binaries
+# reject unknown YAML fields.
+#
+# egress:
+#   enabled: false
+#   listen: ":8889"
+#
+#   # Empty upstream_allow means "allow all, still log". Non-empty switches
+#   # the policy middleware into enforcement mode.
+#   upstream_allow:
+#     - "api.openai.com"
+#     - "api.anthropic.com"
+#     - "generativelanguage.googleapis.com"
+#
+#   # policy_mode: "warn" records violations and lets them through.
+#   #              "block" rejects violations with HTTP 403 and, on log-write
+#   #                      failure, returns 503 (fail-closed for compliance).
+#   policy_mode: "warn"
+#
+#   # Data retention. 0 means fall back to storage.retention_days.
+#   retention_days: 1095  # 3 years (recommended for EU AI Act / Korea AI Act)
+#
+#   # Tamper-evident audit log. "shield-agent logs --verify" walks the chain.
+#   hash_chain:
+#     enabled: true
+#     algorithm: "sha256"  # Phase 1 only supports sha256
+#
+#   middlewares:
+#     - name: policy
+#       enabled: true
+#     - name: egress_log
+#       enabled: true
+#
+#   # -------------------- Phase 2 (MITM + deep inspection) --------------------
+#   # These fields are schema-only in Phase 1. Engaging them requires a CA
+#   # certificate and legal review for the jurisdiction you operate in.
+#   mitm_hosts: []                 # per-host opt-in for TLS MITM
+#   tls_passthrough_hosts: []      # force CONNECT-only for these hosts
+#   ca_cert: ""
+#   ca_key: ""
+#   ca_auto_generate: true
+#   ca_validity_days: 3650
+#   leaf_cache_ttl_min: 60
+#   pii_scrub:
+#     enabled: true
+#     redaction_mode: "mask"
+#   content_tagging:
+#     enabled: true
+#     inject_header: false
+#   log_full_body: false

@@ -32,6 +32,8 @@ func buildProxyCmd(flags *globalFlags) *cobra.Command {
 		transportType string
 		tlsCert       string
 		tlsKey        string
+		withEgress    bool
+		egressListen  string
 	)
 
 	cmd := &cobra.Command{
@@ -51,7 +53,7 @@ Example (cloud MCP Streamable HTTP):
   shield-agent proxy --listen :8888 --upstream https://mcp.example.com --transport streamable-http`,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runProxy(cmd.Context(), flags, listenAddr, upstream, transportType, tlsCert, tlsKey)
+			return runProxy(cmd.Context(), flags, listenAddr, upstream, transportType, tlsCert, tlsKey, withEgress, egressListen)
 		},
 		SilenceUsage: true,
 	}
@@ -62,12 +64,14 @@ Example (cloud MCP Streamable HTTP):
 	f.StringVar(&transportType, "transport", "streamable-http", "transport type: sse or streamable-http")
 	f.StringVar(&tlsCert, "tls-cert", "", "path to TLS certificate file (enables HTTPS when set with --tls-key)")
 	f.StringVar(&tlsKey, "tls-key", "", "path to TLS key file (enables HTTPS when set with --tls-cert)")
+	f.BoolVar(&withEgress, "with-egress", false, "also start the egress forward proxy in this process (shares DB with ingress)")
+	f.StringVar(&egressListen, "egress-listen", "", "egress listen address (overrides egress.listen in config)")
 
 	return cmd
 }
 
 // runProxy is the main execution logic for proxy mode.
-func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, transportType, tlsCert, tlsKey string) error {
+func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, transportType, tlsCert, tlsKey string, withEgress bool, egressListen string) error {
 	cfg, logger, err := initFromFlags(flags)
 	if err != nil {
 		return err
@@ -90,8 +94,32 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 		logger.Info("purged old log entries", "count", n)
 	}
 
+	// Optional egress listener (sharing the same DB).
 	// 2. Prometheus metrics.
 	metrics := monitor.NewMetrics(monitor.DefaultRegisterer())
+
+	var stopEgress func()
+	if withEgress || cfg.Egress.Enabled {
+		if egressListen != "" {
+			cfg.Egress.Listen = egressListen
+		}
+		if cfg.Egress.Listen == "" {
+			cfg.Egress.Listen = ":8889"
+		}
+		cfg.Egress.Enabled = true
+		retention := cfg.Egress.RetentionDays
+		if retention == 0 {
+			retention = cfg.Storage.RetentionDays
+		}
+		if n, err := db.PurgeEgress(retention); err == nil && n > 0 {
+			logger.Info("purged old egress log entries", "count", n)
+		}
+		stopEgress, err = startEgressListenerWithMetrics(ctx, db, cfg, logger, flags, metrics)
+		if err != nil {
+			return fmt.Errorf("starting egress listener: %w", err)
+		}
+		logger.Info("egress listener started", "addr", cfg.Egress.Listen)
+	}
 
 	// 3. Auth KeyStore (file + DB composite).
 	fileStore, err := auth.NewFileKeyStore(cfg.Security.KeyStorePath)
@@ -290,12 +318,18 @@ func runProxy(ctx context.Context, flags *globalFlags, listenAddr, upstream, tra
 	}
 
 	// 9. Graceful shutdown on context cancellation.
+	// ingress + monitor + egress shut down in parallel, each with an
+	// independent 5s timeout. Egress is stopped last so its LogWriter
+	// sees all in-flight responses before flushing.
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		monSrv.Shutdown(shutCtx)
 		srv.Shutdown(shutCtx) //nolint:errcheck
+		if stopEgress != nil {
+			stopEgress()
+		}
 	}()
 
 	printBanner(cfg.Security.Mode, cfg.Server.MonitorAddr, "proxy("+transportType+")")

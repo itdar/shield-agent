@@ -37,6 +37,11 @@ type UpstreamConfig struct {
 }
 
 // Config is the top-level configuration structure.
+//
+// Rollback note: The Egress field uses yaml:"egress,omitempty" with KnownFields(true).
+// Config files authored against this version with an "egress:" section will fail to
+// parse under an older shield-agent binary. When downgrading, remove the egress:
+// section from the YAML before starting the older binary.
 type Config struct {
 	Server      ServerConfig      `yaml:"server"`
 	Security    SecurityConfig    `yaml:"security"`
@@ -46,6 +51,68 @@ type Config struct {
 	Reputation  reputation.Config `yaml:"reputation,omitempty"`
 	Middlewares []MiddlewareEntry `yaml:"middlewares,omitempty"`
 	Upstreams   []UpstreamConfig  `yaml:"upstreams,omitempty"`
+	Egress      EgressConfig      `yaml:"egress,omitempty"`
+}
+
+// EgressConfig controls the forward-proxy egress mode.
+// Phase 1 uses metadata-only interception (CONNECT tunneling, no TLS MITM).
+// Phase 2 fields (MITM, PII scrub, content tagging) are schema-only in this version
+// and get honoured once the corresponding middleware is enabled.
+type EgressConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Listen  string `yaml:"listen"`
+
+	// Phase 1: when non-empty, only these destination hosts are permitted.
+	// Empty means allow all and log metadata.
+	UpstreamAllow []string `yaml:"upstream_allow,omitempty"`
+
+	// PolicyMode: "warn" (record only) or "block" (reject on violation, fail-closed on log error).
+	PolicyMode string `yaml:"policy_mode"`
+
+	// RetentionDays overrides storage.retention_days for egress_logs.
+	// Zero means fall back to StorageConfig.RetentionDays.
+	RetentionDays int `yaml:"retention_days,omitempty"`
+
+	HashChain HashChainConfig `yaml:"hash_chain,omitempty"`
+
+	// --- Phase 2 fields ---
+
+	MITMHosts           []string `yaml:"mitm_hosts,omitempty"`
+	TLSPassthroughHosts []string `yaml:"tls_passthrough_hosts,omitempty"`
+	CACert              string   `yaml:"ca_cert,omitempty"`
+	CAKey               string   `yaml:"ca_key,omitempty"`
+	CAAutoGenerate      bool     `yaml:"ca_auto_generate,omitempty"`
+	CAValidityDays      int      `yaml:"ca_validity_days,omitempty"`
+	LeafCacheTTLMin     int      `yaml:"leaf_cache_ttl_min,omitempty"`
+
+	PIIScrub       PIIScrubConfig       `yaml:"pii_scrub,omitempty"`
+	ContentTagging ContentTaggingConfig `yaml:"content_tagging,omitempty"`
+
+	// LogFullBody: when true, store request/response body verbatim instead of a hash.
+	// High PII-exposure risk; keep false unless legal review approves.
+	LogFullBody bool `yaml:"log_full_body,omitempty"`
+
+	// Middlewares pipeline (empty means use Defaults).
+	Middlewares []MiddlewareEntry `yaml:"middlewares,omitempty"`
+}
+
+// HashChainConfig controls tamper-evident logging.
+type HashChainConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	Algorithm string `yaml:"algorithm,omitempty"` // only "sha256" supported in Phase 1
+}
+
+// PIIScrubConfig (Phase 2).
+type PIIScrubConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	CustomPatterns []string `yaml:"custom_patterns,omitempty"`
+	RedactionMode  string   `yaml:"redaction_mode,omitempty"` // "mask" | "hash"
+}
+
+// ContentTaggingConfig (Phase 2).
+type ContentTaggingConfig struct {
+	Enabled      bool `yaml:"enabled"`
+	InjectHeader bool `yaml:"inject_header,omitempty"`
 }
 
 // ServerConfig holds HTTP monitoring server settings.
@@ -116,6 +183,35 @@ func Defaults() Config {
 			{Name: "auth", Enabled: boolPtr(true)},
 			{Name: "guard", Enabled: boolPtr(true)},
 			{Name: "log", Enabled: boolPtr(true)},
+		},
+		Egress: defaultEgress(),
+	}
+}
+
+// defaultEgress returns the default EgressConfig (disabled Phase 1 metadata-only proxy).
+// Listen defaults to loopback so a fresh install is not an open HTTP relay.
+// Operators who want network-wide access must set egress.listen to 0.0.0.0:PORT explicitly.
+func defaultEgress() EgressConfig {
+	return EgressConfig{
+		Enabled:    false,
+		Listen:     "127.0.0.1:8889",
+		PolicyMode: "warn",
+		HashChain: HashChainConfig{
+			Enabled:   true,
+			Algorithm: "sha256",
+		},
+		CAValidityDays:  3650,
+		LeafCacheTTLMin: 60,
+		PIIScrub: PIIScrubConfig{
+			Enabled:       true,
+			RedactionMode: "mask",
+		},
+		ContentTagging: ContentTaggingConfig{
+			Enabled: true,
+		},
+		Middlewares: []MiddlewareEntry{
+			{Name: "policy", Enabled: boolPtr(true)},
+			{Name: "egress_log", Enabled: boolPtr(true)},
 		},
 	}
 }
@@ -337,6 +433,39 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	if err := validateEgress(&cfg.Egress); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateEgress checks EgressConfig semantics when enabled.
+func validateEgress(e *EgressConfig) error {
+	if !e.Enabled {
+		return nil
+	}
+	if strings.TrimSpace(e.Listen) == "" {
+		return fmt.Errorf("egress.listen must not be empty when egress is enabled")
+	}
+	switch e.PolicyMode {
+	case "warn", "block":
+	default:
+		return fmt.Errorf("egress.policy_mode must be warn or block, got %q", e.PolicyMode)
+	}
+	if e.RetentionDays < 0 {
+		return fmt.Errorf("egress.retention_days must be >= 0, got %d", e.RetentionDays)
+	}
+	if e.HashChain.Enabled && e.HashChain.Algorithm != "" && e.HashChain.Algorithm != "sha256" {
+		return fmt.Errorf("egress.hash_chain.algorithm only supports \"sha256\" in Phase 1, got %q", e.HashChain.Algorithm)
+	}
+	if e.PIIScrub.Enabled && e.PIIScrub.RedactionMode != "" {
+		switch e.PIIScrub.RedactionMode {
+		case "mask", "hash":
+		default:
+			return fmt.Errorf("egress.pii_scrub.redaction_mode must be mask or hash, got %q", e.PIIScrub.RedactionMode)
+		}
+	}
 	return nil
 }
 

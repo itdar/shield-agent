@@ -22,11 +22,20 @@ func DefaultRegisterer() prometheus.Registerer {
 
 // Metrics holds all Prometheus metric collectors.
 type Metrics struct {
-	MessagesTotal      *prometheus.CounterVec
-	AuthTotal          *prometheus.CounterVec
-	MessageLatency     *prometheus.HistogramVec
-	ChildProcessUp     prometheus.Gauge
-	RateLimitRejected  *prometheus.CounterVec
+	MessagesTotal     *prometheus.CounterVec
+	AuthTotal         *prometheus.CounterVec
+	MessageLatency    *prometheus.HistogramVec
+	ChildProcessUp    prometheus.Gauge
+	RateLimitRejected *prometheus.CounterVec
+
+	// Egress (Phase 1). Satisfies egress.EgressMetrics via method receivers below.
+	EgressRequests          *prometheus.CounterVec
+	EgressLatency           *prometheus.HistogramVec
+	EgressPolicyViolations  *prometheus.CounterVec
+	EgressBytes             *prometheus.CounterVec
+	EgressLogWriteErrors    prometheus.Counter
+	EgressLogQueueLength    prometheus.Gauge
+	EgressHashchainLength   prometheus.Gauge
 }
 
 // NewMetrics creates and registers all metrics with the default registerer.
@@ -57,6 +66,42 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name: "shield_agent_rate_limit_rejected_total",
 			Help: "Total number of requests rejected by rate limiting.",
 		}, []string{"method"}),
+
+		EgressRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "shield_agent_egress_requests_total",
+			Help: "Total number of egress requests processed.",
+		}, []string{"provider", "destination", "policy_action"}),
+
+		EgressLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "shield_agent_egress_latency_seconds",
+			Help:    "Egress request round-trip time.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"provider", "destination"}),
+
+		EgressPolicyViolations: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "shield_agent_egress_policy_violations_total",
+			Help: "Total number of egress policy violations (block or warn).",
+		}, []string{"rule", "action"}),
+
+		EgressBytes: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "shield_agent_egress_bytes_total",
+			Help: "Bytes forwarded via the egress proxy.",
+		}, []string{"direction"}),
+
+		EgressLogWriteErrors: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "shield_agent_egress_log_write_errors_total",
+			Help: "Egress compliance log writes that failed after retries.",
+		}),
+
+		EgressLogQueueLength: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "shield_agent_egress_log_queue_length",
+			Help: "Current queue depth of the egress compliance log writer.",
+		}),
+
+		EgressHashchainLength: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "shield_agent_egress_hashchain_length",
+			Help: "Rows currently present in the egress hash chain.",
+		}),
 	}
 
 	reg.MustRegister(
@@ -65,9 +110,46 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		m.MessageLatency,
 		m.ChildProcessUp,
 		m.RateLimitRejected,
+		m.EgressRequests,
+		m.EgressLatency,
+		m.EgressPolicyViolations,
+		m.EgressBytes,
+		m.EgressLogWriteErrors,
+		m.EgressLogQueueLength,
+		m.EgressHashchainLength,
 	)
 
 	return m
+}
+
+// IncRequest implements egress.EgressMetrics.
+func (m *Metrics) IncRequest(provider, destination, policyAction string) {
+	m.EgressRequests.WithLabelValues(provider, destination, policyAction).Inc()
+}
+
+// ObserveLatency implements egress.EgressMetrics.
+func (m *Metrics) ObserveLatency(provider, destination string, seconds float64) {
+	m.EgressLatency.WithLabelValues(provider, destination).Observe(seconds)
+}
+
+// IncPolicyViolation implements egress.EgressMetrics.
+func (m *Metrics) IncPolicyViolation(rule, action string) {
+	m.EgressPolicyViolations.WithLabelValues(rule, action).Inc()
+}
+
+// AddBytes implements egress.EgressMetrics.
+func (m *Metrics) AddBytes(direction string, n int64) {
+	m.EgressBytes.WithLabelValues(direction).Add(float64(n))
+}
+
+// IncLogWriteError implements compliance.WriterMetrics.
+func (m *Metrics) IncLogWriteError() {
+	m.EgressLogWriteErrors.Inc()
+}
+
+// ObserveQueueLength implements compliance.WriterMetrics.
+func (m *Metrics) ObserveQueueLength(n int) {
+	m.EgressLogQueueLength.Set(float64(n))
 }
 
 // Server is the monitoring HTTP server.

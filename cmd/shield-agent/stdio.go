@@ -56,6 +56,8 @@ Example:
 	pf.StringVar(&flags.monitorAddr, "monitor-addr", "", "monitoring HTTP listen address (e.g. 127.0.0.1:9090)")
 	pf.StringSliceVar(&flags.disableMiddlewares, "disable-middleware", nil, "disable named middleware(s) (e.g. --disable-middleware auth,log)")
 	pf.StringSliceVar(&flags.enableMiddlewares, "enable-middleware", nil, "enable named middleware(s)")
+	pf.BoolVar(&flags.withEgress, "with-egress", false, "also start the egress forward proxy alongside the wrapped child")
+	pf.StringVar(&flags.egressListen, "egress-listen", "", "egress listen address (overrides egress.listen in config)")
 
 	return cmd
 }
@@ -93,8 +95,32 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 		logger.Info("purged old log entries", slog.Int64("count", n))
 	}
 
-	// 3. Initialize Prometheus metrics.
+	// 2b. Prometheus metrics (moved up so egress can share them).
 	metrics := monitor.NewMetrics(monitor.DefaultRegisterer())
+
+	var stopEgress func()
+	if flags.withEgress || cfg.Egress.Enabled {
+		if flags.egressListen != "" {
+			cfg.Egress.Listen = flags.egressListen
+		}
+		if cfg.Egress.Listen == "" {
+			cfg.Egress.Listen = ":8889"
+		}
+		cfg.Egress.Enabled = true
+		retention := cfg.Egress.RetentionDays
+		if retention == 0 {
+			retention = cfg.Storage.RetentionDays
+		}
+		if n, err := db.PurgeEgress(retention); err == nil && n > 0 {
+			logger.Info("purged old egress log entries", "count", n)
+		}
+		stop, err := startEgressListenerWithMetrics(ctx, db, cfg, logger, flags, metrics)
+		if err != nil {
+			return fmt.Errorf("starting egress listener: %w", err)
+		}
+		stopEgress = stop
+		logger.Info("egress listener started", "addr", cfg.Egress.Listen)
+	}
 
 	// 4. Create auth KeyStore (file + DB composite).
 	fileStore, err := auth.NewFileKeyStore(cfg.Security.KeyStorePath)
@@ -231,6 +257,9 @@ func runWrapper(ctx context.Context, flags *globalFlags, childArgs []string) err
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer shutCancel()
 	monSrv.Shutdown(shutCtx)
+	if stopEgress != nil {
+		stopEgress()
+	}
 	telCancel()
 
 	return runErr

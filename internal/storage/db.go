@@ -157,6 +157,56 @@ CREATE TABLE IF NOT EXISTS reputation_scores (
 CREATE INDEX IF NOT EXISTS idx_reputation_trust_level ON reputation_scores (trust_level);
 CREATE INDEX IF NOT EXISTS idx_reputation_computed_at ON reputation_scores (computed_at);`,
 	},
+	{
+		version: 10,
+		sql: `
+CREATE TABLE IF NOT EXISTS egress_logs (
+	id               INTEGER PRIMARY KEY AUTOINCREMENT,
+	timestamp        DATETIME NOT NULL,
+	correlation_id   TEXT DEFAULT '',
+	provider         TEXT NOT NULL DEFAULT '',
+	model            TEXT DEFAULT '',
+	method           TEXT NOT NULL,
+	protocol         TEXT DEFAULT 'https',
+	destination      TEXT NOT NULL,
+	status_code      INTEGER DEFAULT 0,
+	request_size     INTEGER DEFAULT 0,
+	response_size    INTEGER DEFAULT 0,
+	latency_ms       REAL DEFAULT 0,
+	content_class    TEXT DEFAULT '',
+	prompt_hash      TEXT DEFAULT '',
+	pii_detected     BOOLEAN DEFAULT 0,
+	pii_scrubbed     BOOLEAN DEFAULT 0,
+	policy_action    TEXT DEFAULT 'allow',
+	policy_rule      TEXT DEFAULT '',
+	ai_generated_tag BOOLEAN DEFAULT 0,
+	error_detail     TEXT DEFAULT '',
+	prev_hash        TEXT DEFAULT '',
+	row_hash         TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_egress_timestamp ON egress_logs (timestamp);
+CREATE INDEX IF NOT EXISTS idx_egress_provider ON egress_logs (provider, timestamp);
+CREATE INDEX IF NOT EXISTS idx_egress_correlation ON egress_logs (correlation_id);
+CREATE INDEX IF NOT EXISTS idx_egress_policy ON egress_logs (policy_action, timestamp);
+CREATE INDEX IF NOT EXISTS idx_egress_destination ON egress_logs (destination);
+
+CREATE TABLE IF NOT EXISTS egress_log_anchors (
+	id               INTEGER PRIMARY KEY AUTOINCREMENT,
+	anchor_timestamp DATETIME NOT NULL,
+	purged_up_to_id  INTEGER NOT NULL,
+	purged_count     INTEGER NOT NULL,
+	chain_hash       TEXT NOT NULL,
+	next_row_id      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_egress_anchors_ts ON egress_log_anchors (anchor_timestamp);
+CREATE INDEX IF NOT EXISTS idx_egress_anchors_next_row ON egress_log_anchors (next_row_id);`,
+	},
+	{
+		version: 11,
+		sql: `
+ALTER TABLE action_logs ADD COLUMN correlation_id TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_action_logs_correlation ON action_logs (correlation_id);`,
+	},
 }
 
 // Open opens (or creates) a SQLite database at path, enables WAL mode, and
