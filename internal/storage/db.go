@@ -16,17 +16,18 @@ type DB struct {
 
 // ActionLog represents a single intercepted message log entry.
 type ActionLog struct {
-	Timestamp   time.Time `json:"timestamp"`
-	AgentIDHash string    `json:"agent_id_hash"`
-	Method      string    `json:"method"`
-	Direction   string    `json:"direction"`
-	Success     bool      `json:"success"`
-	LatencyMs   float64   `json:"latency_ms"`
-	PayloadSize int       `json:"payload_size"`
-	AuthStatus  string    `json:"auth"`
-	ErrorCode    string    `json:"error_code"`
-	IPAddress    string    `json:"ip"`
-	UpstreamName string    `json:"upstream_name"`
+	Timestamp     time.Time `json:"timestamp"`
+	AgentIDHash   string    `json:"agent_id_hash"`
+	Method        string    `json:"method"`
+	Direction     string    `json:"direction"`
+	Success       bool      `json:"success"`
+	LatencyMs     float64   `json:"latency_ms"`
+	PayloadSize   int       `json:"payload_size"`
+	AuthStatus    string    `json:"auth"`
+	ErrorCode     string    `json:"error_code"`
+	IPAddress     string    `json:"ip"`
+	UpstreamName  string    `json:"upstream_name"`
+	CorrelationID string    `json:"correlation_id"`
 }
 
 // migration represents a single schema migration step.
@@ -293,9 +294,9 @@ func (db *DB) Close() error {
 func (db *DB) Insert(log ActionLog) error {
 	const q = `
 INSERT INTO action_logs
-	(timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address, upstream_name)
+	(timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address, upstream_name, correlation_id)
 VALUES
-	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := db.conn.Exec(q,
 		log.Timestamp.UTC(),
@@ -309,6 +310,7 @@ VALUES
 		log.ErrorCode,
 		log.IPAddress,
 		log.UpstreamName,
+		log.CorrelationID,
 	)
 	return err
 }
@@ -345,7 +347,7 @@ func (db *DB) QueryLogs(opts QueryOptions) ([]ActionLog, error) {
 		args = append(args, opts.UpstreamName)
 	}
 
-	q := "SELECT timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address, upstream_name FROM action_logs"
+	q := "SELECT timestamp, agent_id_hash, method, direction, success, latency_ms, payload_size, auth_status, error_code, ip_address, upstream_name, correlation_id FROM action_logs"
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -368,7 +370,7 @@ func (db *DB) QueryLogs(opts QueryOptions) ([]ActionLog, error) {
 		var l ActionLog
 		var ts string
 		if err := rows.Scan(&ts, &l.AgentIDHash, &l.Method, &l.Direction,
-			&l.Success, &l.LatencyMs, &l.PayloadSize, &l.AuthStatus, &l.ErrorCode, &l.IPAddress, &l.UpstreamName); err != nil {
+			&l.Success, &l.LatencyMs, &l.PayloadSize, &l.AuthStatus, &l.ErrorCode, &l.IPAddress, &l.UpstreamName, &l.CorrelationID); err != nil {
 			return nil, fmt.Errorf("scanning log row: %w", err)
 		}
 		if t, err := time.Parse("2006-01-02T15:04:05Z", ts); err == nil {

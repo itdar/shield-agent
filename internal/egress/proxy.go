@@ -1,7 +1,10 @@
 package egress
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -28,10 +31,11 @@ const dialTimeout = 15 * time.Second
 // transparently shuttles bytes to the upstream destination, logging
 // connection metadata through the configured EgressMiddleware chain.
 //
-// Phase 1 is metadata-only: the Proxy never decrypts TLS. Phase 2 will
-// add a TLS MITM layer that substitutes a dynamically-signed server
-// certificate for the upstream cert, but that is wired in a separate
-// component (to be added alongside internal/egress/mitm.go).
+// Phase 1 is metadata-only: the Proxy never decrypts TLS. Phase 2 adds
+// per-host TLS MITM via Minter + MITMHosts, so the body is exposed to
+// the middleware chain for PII scrub, content tagging, and prompt
+// hashing. Hosts outside the MITM set fall back to the Phase 1
+// CONNECT-pipe path.
 type Proxy struct {
 	chain   *SwappableEgressChain
 	logger  *slog.Logger
@@ -48,6 +52,16 @@ type Proxy struct {
 	// AllowLoopbackDestinations opens the SSRF guard so loopback/private
 	// addresses are reachable. Only used by tests.
 	AllowLoopbackDestinations bool
+
+	// Minter is the MITM certificate factory (Phase 2). nil means MITM
+	// is disabled; all CONNECTs fall through to the pipe path.
+	Minter *MITMMinter
+	// MITMHosts is the lowercased set of destination hostnames to MITM.
+	// Empty means "MITM nothing, pipe everything".
+	MITMHosts map[string]struct{}
+	// UpstreamTLSSkipVerify allows tests to point at self-signed
+	// upstreams. Never enable in production.
+	UpstreamTLSSkipVerify bool
 }
 
 // NewProxy builds a Proxy from the given chain.
@@ -124,8 +138,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // handleConnect implements the HTTP CONNECT method for HTTPS tunneling.
 // The client sends "CONNECT host:port HTTP/1.1"; we open a TCP socket
-// to host:port, return "200 Connection established", then pipe bytes
-// in both directions. We never look inside the tunnel in Phase 1.
+// to host:port, return "200 Connection established", then either (a)
+// pipe raw bytes (Phase 1 metadata-only path) or (b) terminate TLS on
+// both sides and route the decrypted stream through the middleware
+// chain (Phase 2 MITM path).
 func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	destination := r.Host
 	host, port := splitHostPort(destination)
@@ -162,6 +178,19 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientConn.Close()
 
+	// Tell the client the tunnel is established before TLS / raw bytes
+	// flow. Both paths need this handshake.
+	if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
+		p.logger.Warn("egress write 200 failed", slog.String("err", err.Error()))
+		p.afterRequest(ctx, req, &Response{ErrorDetail: "write200: " + err.Error()})
+		return
+	}
+
+	if p.shouldMITM(host) {
+		p.handleMITM(ctx, req, clientConn, clientBuf)
+		return
+	}
+
 	upstream, err := p.Dial(ctx, "tcp", destination)
 	if err != nil {
 		p.logger.Warn("egress upstream dial failed",
@@ -171,13 +200,6 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer upstream.Close()
-
-	// Let the client know the tunnel is up.
-	if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
-		p.logger.Warn("egress write 200 failed", slog.String("err", err.Error()))
-		p.afterRequest(ctx, req, &Response{ErrorDetail: "write200: " + err.Error()})
-		return
-	}
 
 	// Drain any buffered client bytes into the upstream before starting
 	// the raw copy loop — otherwise part of the first TLS ClientHello
@@ -197,7 +219,6 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		defer wg.Done()
 		n, _ := copyBytes(upstream, clientConn)
 		reqBytes = n
-		// closing the upstream write side nudges the other direction's io.Copy to return.
 		_ = closeWrite(upstream)
 	}()
 	go func() {
@@ -216,6 +237,221 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		LatencyMs:    float64(latency.Microseconds()) / 1000.0,
 	}
 	p.afterRequest(ctx, req, resp)
+}
+
+// shouldMITM reports whether the given host is in the MITM allow set and
+// the proxy has been configured with a minter.
+func (p *Proxy) shouldMITM(host string) bool {
+	if p.Minter == nil || len(p.MITMHosts) == 0 {
+		return false
+	}
+	_, ok := p.MITMHosts[strings.ToLower(host)]
+	return ok
+}
+
+// handleMITM terminates TLS on the client side with a freshly-minted
+// leaf cert and opens an outbound TLS connection to the real upstream.
+// Requests flowing in are parsed as HTTP/1.1, replayed onto the
+// upstream connection (with hop-by-hop headers stripped), and the
+// response is buffered back to the client. Each decrypted request/
+// response pair generates one middleware round-trip with req.Protocol
+// set to "mitm".
+func (p *Proxy) handleMITM(ctx context.Context, req *Request, clientConn net.Conn, _ *bufio.ReadWriter) {
+	mitmConfig := &tls.Config{
+		GetCertificate: p.Minter.GetCertificate,
+		MinVersion:     tls.VersionTLS12,
+	}
+	tlsConn := tls.Server(clientConn, mitmConfig)
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		p.logger.Warn("egress MITM handshake failed",
+			slog.String("destination", req.Destination), slog.String("err", err.Error()))
+		p.afterRequest(ctx, req, &Response{ErrorDetail: "mitm handshake: " + err.Error()})
+		return
+	}
+	defer tlsConn.Close()
+
+	// Open the real upstream TLS connection once and reuse for the
+	// (likely single) request. Keep-alive to the upstream is handled by
+	// p.transport when we use the stdlib client; here we stay at the
+	// socket level for minimum overhead.
+	upstreamTLS, err := p.dialUpstreamTLS(ctx, req.Host, req.Port)
+	if err != nil {
+		p.logger.Warn("egress MITM upstream dial failed",
+			slog.String("destination", req.Destination), slog.String("err", err.Error()))
+		p.afterRequest(ctx, req, &Response{ErrorDetail: "mitm dial: " + err.Error()})
+		return
+	}
+	defer upstreamTLS.Close()
+
+	// Parse client HTTP/1.1 request, forward, and stream response back.
+	// If the client pipelines multiple requests we serve them one at a
+	// time over the same TLS session.
+	clientReader := bufio.NewReader(tlsConn)
+	for {
+		clientReq, err := http.ReadRequest(clientReader)
+		if err != nil {
+			if err != io.EOF {
+				p.logger.Debug("egress MITM read client request end",
+					slog.String("err", err.Error()))
+			}
+			return
+		}
+
+		innerReq := &Request{
+			Destination:   req.Destination,
+			Host:          req.Host,
+			Port:          req.Port,
+			Method:        clientReq.Method + " " + clientReq.URL.RequestURI(),
+			Protocol:      "mitm",
+			Provider:      req.Provider,
+			PolicyAction:  req.PolicyAction,
+			PolicyRule:    req.PolicyRule,
+			CorrelationID: req.CorrelationID,
+			StartedAt:     time.Now().UTC(),
+			ClientRequest: clientReq,
+		}
+		if v := clientReq.Header.Get("X-Shield-Correlation-Id"); v != "" {
+			innerReq.CorrelationID = v
+		}
+
+		body, err := io.ReadAll(clientReq.Body)
+		clientReq.Body.Close()
+		if err != nil {
+			p.logger.Warn("egress MITM read body", slog.String("err", err.Error()))
+			return
+		}
+		innerReq.Body = body
+
+		updated, failed, err := p.chain.ProcessRequest(ctx, innerReq)
+		if err != nil {
+			// Policy rejection after decrypt — respond 403 on the TLS
+			// channel and record the outcome.
+			writeTLSError(tlsConn, http.StatusForbidden)
+			innerReq.PolicyAction = "block"
+			if failed != nil {
+				innerReq.PolicyRule = failed.Name()
+			}
+			p.afterRequest(ctx, innerReq, &Response{StatusCode: http.StatusForbidden, ErrorDetail: err.Error()})
+			return
+		}
+		innerReq = updated
+
+		// Replay request on the upstream TLS socket.
+		forward := clientReq.Clone(ctx)
+		forward.Body = io.NopCloser(bytes.NewReader(body))
+		forward.RequestURI = ""
+		forward.URL.Scheme = "https"
+		forward.URL.Host = req.Destination
+		removeHopByHopHeaders(forward.Header)
+		if err := forward.Write(upstreamTLS); err != nil {
+			p.logger.Warn("egress MITM upstream write", slog.String("err", err.Error()))
+			return
+		}
+
+		upstreamReader := bufio.NewReader(upstreamTLS)
+		upResp, err := http.ReadResponse(upstreamReader, forward)
+		if err != nil {
+			p.logger.Warn("egress MITM upstream read", slog.String("err", err.Error()))
+			return
+		}
+
+		respBody, err := io.ReadAll(upResp.Body)
+		upResp.Body.Close()
+		if err != nil {
+			p.logger.Warn("egress MITM response read", slog.String("err", err.Error()))
+			return
+		}
+
+		// Prepare the Response for the middleware chain (body available).
+		latency := time.Since(innerReq.StartedAt)
+		innerResp := &Response{
+			StatusCode:   upResp.StatusCode,
+			RequestSize:  int64(len(body)),
+			ResponseSize: int64(len(respBody)),
+			LatencyMs:    float64(latency.Microseconds()) / 1000.0,
+			Headers:      upResp.Header.Clone(),
+			Body:         respBody,
+		}
+		if _, err := p.chain.ProcessResponse(ctx, innerReq, innerResp); err != nil {
+			p.logger.Warn("egress MITM ProcessResponse", slog.String("err", err.Error()))
+		}
+
+		// Replay response back to the client, honouring any header
+		// mutations middleware may have done.
+		upResp.Body = io.NopCloser(bytes.NewReader(innerResp.Body))
+		upResp.ContentLength = int64(len(innerResp.Body))
+		removeHopByHopHeaders(upResp.Header)
+		if innerResp.Headers != nil {
+			upResp.Header = innerResp.Headers
+			removeHopByHopHeaders(upResp.Header)
+		}
+		if err := upResp.Write(tlsConn); err != nil {
+			p.logger.Warn("egress MITM client write", slog.String("err", err.Error()))
+			return
+		}
+
+		p.metrics.IncRequest(innerReq.Provider, pickAction(innerReq.PolicyAction))
+		p.metrics.ObserveLatency(innerReq.Provider, innerResp.LatencyMs/1000.0)
+		if innerResp.RequestSize > 0 {
+			p.metrics.AddBytes("request", innerResp.RequestSize)
+		}
+		if innerResp.ResponseSize > 0 {
+			p.metrics.AddBytes("response", innerResp.ResponseSize)
+		}
+
+		// Stop if the client asked to close.
+		if clientReq.Close || !keepAliveResponse(upResp) {
+			return
+		}
+	}
+}
+
+// dialUpstreamTLS opens a TLS connection to the real upstream, applying
+// the same SSRF guard as the plaintext dialer.
+func (p *Proxy) dialUpstreamTLS(ctx context.Context, host string, port int) (*tls.Conn, error) {
+	if port == 0 {
+		port = 443
+	}
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	raw, err := p.Dial(ctx, "tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	tlsCfg := &tls.Config{
+		ServerName:         host,
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: p.UpstreamTLSSkipVerify,
+	}
+	c := tls.Client(raw, tlsCfg)
+	if err := c.HandshakeContext(ctx); err != nil {
+		raw.Close()
+		return nil, fmt.Errorf("upstream tls handshake: %w", err)
+	}
+	return c, nil
+}
+
+func pickAction(a string) string {
+	if a == "" {
+		return "allow"
+	}
+	return a
+}
+
+func keepAliveResponse(resp *http.Response) bool {
+	if resp.Close {
+		return false
+	}
+	if resp.ProtoMajor == 1 && resp.ProtoMinor == 0 {
+		// HTTP/1.0 defaults to close.
+		return strings.EqualFold(resp.Header.Get("Connection"), "keep-alive")
+	}
+	return !strings.EqualFold(resp.Header.Get("Connection"), "close")
+}
+
+func writeTLSError(conn net.Conn, status int) {
+	fmt.Fprintf(conn,
+		"HTTP/1.1 %d %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+		status, http.StatusText(status))
 }
 
 // handleHTTP implements plain HTTP forward-proxy semantics. The client
@@ -251,7 +487,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	updated, failed, err := p.chain.ProcessRequest(ctx, req)
 	if err != nil {
-		p.rejectHTTP(w, req, failed, err)
+		p.rejectHTTP(ctx, w, req, failed, err)
 		return
 	}
 	req = updated
@@ -305,8 +541,12 @@ func (p *Proxy) afterRequest(ctx context.Context, req *Request, resp *Response) 
 		p.logger.Warn("egress ProcessResponse error",
 			slog.String("destination", req.Destination), slog.String("err", err.Error()))
 	}
-	p.metrics.IncRequest(req.Provider, req.Host, "allow")
-	p.metrics.ObserveLatency(req.Provider, req.Host, resp.LatencyMs/1000.0)
+	action := req.PolicyAction
+	if action == "" {
+		action = "allow"
+	}
+	p.metrics.IncRequest(req.Provider, action)
+	p.metrics.ObserveLatency(req.Provider, resp.LatencyMs/1000.0)
 	if resp.RequestSize > 0 {
 		p.metrics.AddBytes("request", resp.RequestSize)
 	}
@@ -323,14 +563,21 @@ func (p *Proxy) rejectConnect(w http.ResponseWriter, r *http.Request, req *Reque
 	if errors.Is(err, errLogWriteFailed) {
 		status = http.StatusServiceUnavailable
 	}
-	http.Error(w, err.Error(), status)
+	http.Error(w, "request denied by policy", status)
 
-	action := "block"
-	rule := ""
-	if failed != nil {
+	action := req.PolicyAction
+	if action == "" {
+		action = "block"
+	}
+	rule := req.PolicyRule
+	if rule == "" && failed != nil {
 		rule = failed.Name()
 	}
-	p.metrics.IncRequest(req.Provider, req.Host, action)
+	req.PolicyAction = action
+	req.PolicyRule = rule
+	// rejectConnect is called with a pseudo-generic error string; the
+	// client-facing message stays minimal so the allowlist isn't leaked.
+	p.metrics.IncRequest(req.Provider, action)
 	p.metrics.IncPolicyViolation(rule, action)
 
 	// Even for a rejected request, run ProcessResponse so the log middleware
@@ -342,22 +589,27 @@ func (p *Proxy) rejectConnect(w http.ResponseWriter, r *http.Request, req *Reque
 }
 
 // rejectHTTP is the plaintext-HTTP variant of rejectConnect.
-func (p *Proxy) rejectHTTP(w http.ResponseWriter, req *Request, failed EgressMiddleware, err error) {
+func (p *Proxy) rejectHTTP(ctx context.Context, w http.ResponseWriter, req *Request, failed EgressMiddleware, err error) {
 	status := http.StatusForbidden
 	if errors.Is(err, errLogWriteFailed) {
 		status = http.StatusServiceUnavailable
 	}
-	http.Error(w, err.Error(), status)
+	http.Error(w, "request denied by policy", status)
 
-	action := "block"
-	rule := ""
-	if failed != nil {
+	action := req.PolicyAction
+	if action == "" {
+		action = "block"
+	}
+	rule := req.PolicyRule
+	if rule == "" && failed != nil {
 		rule = failed.Name()
 	}
-	p.metrics.IncRequest(req.Provider, req.Host, action)
+	req.PolicyAction = action
+	req.PolicyRule = rule
+	p.metrics.IncRequest(req.Provider, action)
 	p.metrics.IncPolicyViolation(rule, action)
 
-	_, _ = p.chain.ProcessResponse(context.Background(), req, &Response{
+	_, _ = p.chain.ProcessResponse(ctx, req, &Response{
 		StatusCode:  status,
 		ErrorDetail: err.Error(),
 	})

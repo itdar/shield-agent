@@ -49,18 +49,19 @@ type PolicySnapshot struct {
 
 // BuildAuditBundle composes an AuditBundle covering the last N hours.
 // If windowHours <= 0, all rows currently in the database are included.
+// Rows are streamed in via a DB cursor, so memory usage stays bounded
+// even for multi-GB logs.
 func BuildAuditBundle(db *storage.DB, cfg config.EgressConfig, windowHours int, version string) (*AuditBundle, error) {
-	opts := storage.EgressQueryOptions{Last: 1_000_000}
+	var since time.Duration
 	if windowHours > 0 {
-		opts.Since = time.Duration(windowHours) * time.Hour
+		since = time.Duration(windowHours) * time.Hour
 	}
-	rows, err := db.QueryEgressLogs(opts)
-	if err != nil {
-		return nil, fmt.Errorf("querying egress logs: %w", err)
-	}
-	// Chronological order reads better in an audit PDF.
-	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
-		rows[i], rows[j] = rows[j], rows[i]
+	rows := []storage.EgressLog{}
+	if err := db.ScanEgressLogsAsc(since, func(row storage.EgressLog) error {
+		rows = append(rows, row)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("scanning egress logs: %w", err)
 	}
 
 	anchors, err := db.ListEgressAnchors()

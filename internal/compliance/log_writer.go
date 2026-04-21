@@ -179,6 +179,12 @@ func (w *LogWriter) QueueLength() int {
 // Close initiates shutdown: no further Enqueue is accepted, in-flight
 // queue is drained, writer goroutine exits, and Close returns after the
 // final DB write. Safe to call multiple times (second call is a no-op).
+//
+// We intentionally do NOT close writeCh. Closing a buffered channel
+// while Enqueue callers hold a reference risks a send-on-closed panic
+// if the runtime picks the channel case in Enqueue's select before the
+// caller observes `done`. Instead, the writer goroutine drains whatever
+// is already buffered on writeCh and exits when `done` is closed.
 func (w *LogWriter) Close() {
 	w.closeMu.Lock()
 	select {
@@ -190,13 +196,9 @@ func (w *LogWriter) Close() {
 	close(w.closed)
 	w.closeMu.Unlock()
 
-	// Signal Enqueue to stop accepting. close(done) must happen before
-	// close(writeCh) so in-flight Enqueues observe done and return
-	// ErrWriterClosed instead of sending on a closed channel.
+	// Signal Enqueue to stop accepting — all selects in Enqueue/EnqueueSync
+	// observe this and return ErrWriterClosed.
 	close(w.done)
-	// Drain existing queue — writer goroutine sees the close and exits
-	// when the channel is empty.
-	close(w.writeCh)
 	w.wg.Wait()
 }
 
@@ -205,21 +207,45 @@ func (w *LogWriter) Close() {
 // the failure and moves on. The hash chain continuity is preserved by
 // the egress middleware (which computes row_hash before Enqueue), so
 // a dropped row still shows up in the verifier as a gap.
+//
+// Shutdown protocol: Close() closes w.done but NOT w.writeCh. The writer
+// keeps draining buffered jobs until the channel is empty and `done` is
+// closed, then exits. This avoids send-on-closed-channel panics in
+// racing Enqueue callers.
 func (w *LogWriter) writer() {
 	defer w.wg.Done()
-	for job := range w.writeCh {
-		id, err := w.insertWithRetry(job.log)
-		if err != nil {
-			w.metrics.IncLogWriteError()
-			w.logger.Error("egress log write failed after retries",
-				slog.String("destination", job.log.Destination),
-				slog.String("row_hash", job.log.RowHash),
-				slog.String("error", err.Error()),
-			)
+	for {
+		select {
+		case job := <-w.writeCh:
+			w.handleJob(job)
+		case <-w.done:
+			// Drain anything the caller managed to enqueue before observing
+			// done, then exit. Non-blocking receive so we stop once empty.
+			for {
+				select {
+				case job := <-w.writeCh:
+					w.handleJob(job)
+				default:
+					return
+				}
+			}
 		}
-		if job.ackCh != nil {
-			job.ackCh <- writeResult{id: id, err: err}
-		}
+	}
+}
+
+// handleJob performs one insert with retry + ack.
+func (w *LogWriter) handleJob(job writeJob) {
+	id, err := w.insertWithRetry(job.log)
+	if err != nil {
+		w.metrics.IncLogWriteError()
+		w.logger.Error("egress log write failed after retries",
+			slog.String("destination", job.log.Destination),
+			slog.String("row_hash", job.log.RowHash),
+			slog.String("error", err.Error()),
+		)
+	}
+	if job.ackCh != nil {
+		job.ackCh <- writeResult{id: id, err: err}
 	}
 }
 

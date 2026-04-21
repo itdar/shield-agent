@@ -67,16 +67,19 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help: "Total number of requests rejected by rate limiting.",
 		}, []string{"method"}),
 
+		// destination is intentionally NOT a label — cardinality could
+		// explode with attacker-controlled hostnames. Use provider
+		// (a small, well-known set) instead.
 		EgressRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "shield_agent_egress_requests_total",
 			Help: "Total number of egress requests processed.",
-		}, []string{"provider", "destination", "policy_action"}),
+		}, []string{"provider", "policy_action"}),
 
 		EgressLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "shield_agent_egress_latency_seconds",
 			Help:    "Egress request round-trip time.",
 			Buckets: prometheus.DefBuckets,
-		}, []string{"provider", "destination"}),
+		}, []string{"provider"}),
 
 		EgressPolicyViolations: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "shield_agent_egress_policy_violations_total",
@@ -123,13 +126,13 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 }
 
 // IncRequest implements egress.EgressMetrics.
-func (m *Metrics) IncRequest(provider, destination, policyAction string) {
-	m.EgressRequests.WithLabelValues(provider, destination, policyAction).Inc()
+func (m *Metrics) IncRequest(provider, policyAction string) {
+	m.EgressRequests.WithLabelValues(provider, policyAction).Inc()
 }
 
 // ObserveLatency implements egress.EgressMetrics.
-func (m *Metrics) ObserveLatency(provider, destination string, seconds float64) {
-	m.EgressLatency.WithLabelValues(provider, destination).Observe(seconds)
+func (m *Metrics) ObserveLatency(provider string, seconds float64) {
+	m.EgressLatency.WithLabelValues(provider).Observe(seconds)
 }
 
 // IncPolicyViolation implements egress.EgressMetrics.

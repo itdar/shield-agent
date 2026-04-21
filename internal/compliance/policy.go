@@ -59,8 +59,13 @@ func (*PolicyMiddleware) Name() string { return "policy" }
 
 // ProcessRequest evaluates the allowlist. In block mode a violation aborts
 // the chain; in warn mode it annotates the request and metrics counter.
+// Either way the decision is recorded on req.PolicyAction so the terminal
+// egress_log middleware can persist it.
 func (p *PolicyMiddleware) ProcessRequest(_ context.Context, req *egress.Request) (*egress.Request, error) {
 	if p.allowed(req.Host) {
+		if req.PolicyAction == "" {
+			req.PolicyAction = "allow"
+		}
 		return req, nil
 	}
 	rule := "upstream_allow"
@@ -68,6 +73,8 @@ func (p *PolicyMiddleware) ProcessRequest(_ context.Context, req *egress.Request
 	if p.mode == "block" {
 		action = "block"
 	}
+	req.PolicyAction = action
+	req.PolicyRule = rule
 	p.metrics.IncPolicyViolation(rule, action)
 	p.logger.Warn("egress policy violation",
 		slog.String("destination", req.Host),

@@ -50,6 +50,14 @@ type Request struct {
 	// Body is the request body for Phase 2 MITM'd requests. Always nil
 	// in Phase 1.
 	Body []byte
+	// PolicyAction is populated by the policy middleware: "allow",
+	// "warn" (violation recorded, let through), or "block" (reject).
+	// Downstream middlewares read this instead of status-code heuristics.
+	PolicyAction string
+	// PolicyRule is the name of the rule the policy middleware matched.
+	PolicyRule string
+	// CorrelationID is the ULID propagated from ingress (Phase 2).
+	CorrelationID string
 }
 
 // Response is populated after the upstream exchange completes.
@@ -68,6 +76,13 @@ type Response struct {
 	Headers http.Header
 	// Body (Phase 2 MITM only).
 	Body []byte
+	// --- Phase 2 compliance-middleware output ---
+	PromptHash   string
+	Model        string
+	ContentClass string
+	AIGenerated  bool
+	PIIDetected  bool
+	PIIScrubbed  bool
 }
 
 // EgressMiddleware processes intercepted outbound traffic.
@@ -107,13 +122,15 @@ func (c *EgressChain) ProcessRequest(ctx context.Context, req *Request) (*Reques
 	return cur, nil, nil
 }
 
-// ProcessResponse walks the chain in reverse order so symmetrical
-// middlewares (e.g. content transformers) see request→response pairs
-// in LIFO order.
+// ProcessResponse walks the chain in the same order as ProcessRequest
+// (forward). The audit-log middleware is the terminal sink and must see
+// fields filled in by earlier middlewares (compliance → prompt_hash,
+// model, content_class, pii flags), so forward order is the natural
+// choice here. Middlewares that need LIFO semantics can wrap themselves.
 func (c *EgressChain) ProcessResponse(ctx context.Context, req *Request, resp *Response) (*Response, error) {
 	cur := resp
-	for i := len(c.items) - 1; i >= 0; i-- {
-		next, err := c.items[i].ProcessResponse(ctx, req, cur)
+	for _, m := range c.items {
+		next, err := m.ProcessResponse(ctx, req, cur)
 		if err != nil {
 			return nil, err
 		}

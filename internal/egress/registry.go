@@ -1,6 +1,7 @@
 package egress
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
@@ -8,22 +9,37 @@ import (
 	"github.com/itdar/shield-agent/internal/storage"
 )
 
+// EgressLogWriter is the minimum surface the terminal audit middleware
+// needs from compliance.LogWriter. Declared here so egress doesn't
+// import compliance (which would cycle since compliance imports egress).
+type EgressLogWriter interface {
+	Enqueue(ctx context.Context, row storage.EgressLog) error
+	EnqueueSync(ctx context.Context, row storage.EgressLog) (int64, error)
+	QueueLength() int
+	Close()
+}
+
+// EgressHashChain is the minimum surface for the rolling-hash state.
+// Same rationale as EgressLogWriter for cycle avoidance.
+type EgressHashChain interface {
+	ComputeRow(row storage.EgressLog) storage.EgressLog
+	Tail() string
+}
+
 // EgressDependencies holds shared resources middleware factories need.
 // Unlike middleware.Dependencies (ingress), LogWriter is a hard dependency:
 // every egress request must be persisted, so every chain build needs it.
-//
-// LogWriter and HashChain are typed as `any` to avoid an import cycle with
-// the compliance package, which owns those concrete types AND needs to
-// implement EgressMiddleware. Factories type-assert back to the real types.
 type EgressDependencies struct {
-	DB        *storage.DB
-	Logger    *slog.Logger
-	Cfg       config.EgressConfig
-	LogWriter any
+	DB     *storage.DB
+	Logger *slog.Logger
+	Cfg    config.EgressConfig
+	// LogWriter persists egress_logs rows. Concrete type lives in
+	// internal/compliance to keep egress free of compliance imports.
+	LogWriter EgressLogWriter
 	// HashChain records the last row_hash so the chain persists across
 	// middleware rebuilds (SIGHUP). It is injected separately so SIGHUP
 	// can reuse the same instance.
-	HashChain any
+	HashChain EgressHashChain
 	// ProviderDetect maps Host -> provider string. Injected so tests can
 	// supply a fake.
 	ProviderDetect ProviderDetector
@@ -33,9 +49,11 @@ type EgressDependencies struct {
 
 // EgressMetrics is the subset of the Prometheus collector the egress
 // pipeline touches. Nil implementation is allowed via NoopMetrics.
+// destination is deliberately absent from IncRequest/ObserveLatency
+// labels to keep Prometheus cardinality bounded — use provider instead.
 type EgressMetrics interface {
-	IncRequest(provider, destination, policyAction string)
-	ObserveLatency(provider, destination string, seconds float64)
+	IncRequest(provider, policyAction string)
+	ObserveLatency(provider string, seconds float64)
 	IncPolicyViolation(rule, action string)
 	AddBytes(direction string, n int64)
 }
@@ -44,10 +62,10 @@ type EgressMetrics interface {
 type NoopMetrics struct{}
 
 // IncRequest is a no-op.
-func (NoopMetrics) IncRequest(string, string, string) {}
+func (NoopMetrics) IncRequest(string, string) {}
 
 // ObserveLatency is a no-op.
-func (NoopMetrics) ObserveLatency(string, string, float64) {}
+func (NoopMetrics) ObserveLatency(string, float64) {}
 
 // IncPolicyViolation is a no-op.
 func (NoopMetrics) IncPolicyViolation(string, string) {}

@@ -110,9 +110,11 @@ type VerifyResult struct {
 	Detail      string
 }
 
-// Verify walks every row in egress_logs in id order, reconciling against
-// anchor boundaries, and confirms each row's prev_hash chains from the
-// previous row/anchor and each row_hash matches a recomputation.
+// Verify walks every row in egress_logs in id order via a DB cursor,
+// reconciling against anchor boundaries, and confirms each row's
+// prev_hash chains from the previous row/anchor and each row_hash
+// matches a recomputation. The cursor-based walk means a 10M-row log
+// is checked with bounded memory.
 //
 // Returns (result, nil) when verification completed (check result.OK for
 // pass/fail). Returns a non-nil error only for DB-level failures.
@@ -121,18 +123,14 @@ func Verify(db *storage.DB) (VerifyResult, error) {
 	if err != nil {
 		return VerifyResult{}, fmt.Errorf("loading anchors: %w", err)
 	}
-	rows, err := db.QueryEgressLogs(storage.EgressQueryOptions{Last: 1_000_000})
-	if err != nil {
-		return VerifyResult{}, fmt.Errorf("loading egress logs: %w", err)
-	}
-	// QueryEgressLogs returns newest-first; flip to ascending for chain walk.
-	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
-		rows[i], rows[j] = rows[j], rows[i]
-	}
 
 	expected := ""
 	anchorIdx := 0
-	for _, row := range rows {
+	rowsChecked := 0
+	var badRowID int64
+	var badDetail string
+
+	walkErr := db.ScanEgressLogsAsc(0, func(row storage.EgressLog) error {
 		// Advance across any anchors whose next_row_id matches this row —
 		// this means the chain segment immediately before us was purged,
 		// so our prev_hash should chain from the anchor's chain_hash.
@@ -142,33 +140,44 @@ func Verify(db *storage.DB) (VerifyResult, error) {
 		}
 
 		if row.PrevHash != expected {
-			return VerifyResult{
-				OK:          false,
-				RowsChecked: len(rows),
-				Anchors:     len(anchors),
-				BadRowID:    row.ID,
-				Detail:      fmt.Sprintf("prev_hash mismatch at row %d: expected %q, got %q", row.ID, expected, row.PrevHash),
-			}, nil
+			badRowID = row.ID
+			badDetail = fmt.Sprintf("prev_hash mismatch at row %d: expected %q, got %q", row.ID, expected, row.PrevHash)
+			return errVerifyBad
 		}
 
 		recomputed := canonicalRowHash(row.PrevHash, row)
 		if row.RowHash != recomputed {
-			return VerifyResult{
-				OK:          false,
-				RowsChecked: len(rows),
-				Anchors:     len(anchors),
-				BadRowID:    row.ID,
-				Detail:      fmt.Sprintf("row_hash mismatch at row %d: expected %q, got %q", row.ID, recomputed, row.RowHash),
-			}, nil
+			badRowID = row.ID
+			badDetail = fmt.Sprintf("row_hash mismatch at row %d: expected %q, got %q", row.ID, recomputed, row.RowHash)
+			return errVerifyBad
 		}
 
 		expected = row.RowHash
+		rowsChecked++
+		return nil
+	})
+
+	if walkErr != nil && walkErr != errVerifyBad {
+		return VerifyResult{}, fmt.Errorf("scanning egress logs: %w", walkErr)
+	}
+	if walkErr == errVerifyBad {
+		return VerifyResult{
+			OK:          false,
+			RowsChecked: rowsChecked + 1, // include the bad row
+			Anchors:     len(anchors),
+			BadRowID:    badRowID,
+			Detail:      badDetail,
+		}, nil
 	}
 
 	return VerifyResult{
 		OK:          true,
-		RowsChecked: len(rows),
+		RowsChecked: rowsChecked,
 		Anchors:     len(anchors),
-		Detail:      fmt.Sprintf("OK (%d entries verified, %d anchors)", len(rows), len(anchors)),
+		Detail:      fmt.Sprintf("OK (%d entries verified, %d anchors)", rowsChecked, len(anchors)),
 	}, nil
 }
+
+// errVerifyBad is a sentinel used to break out of ScanEgressLogsAsc early
+// without treating the break as a DB error.
+var errVerifyBad = fmt.Errorf("verify sentinel: mismatch")

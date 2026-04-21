@@ -192,6 +192,66 @@ FROM egress_logs`
 	return logs, rows.Err()
 }
 
+// ScanEgressLogsAsc iterates every egress_logs row in ascending id order,
+// calling fn for each. The scan is implemented on top of the same
+// connection pool as the rest of storage, so it respects SetMaxOpenConns(1)
+// and will not race the LogWriter. Break out early by returning a non-nil
+// error from fn; that error is propagated back to the caller.
+//
+// This is the memory-safe replacement for `QueryEgressLogs{Last: 1_000_000}` —
+// Verify and AuditBundle streaming use it to avoid loading the whole
+// table at once. Rows are yielded one at a time; fn owns the struct.
+func (db *DB) ScanEgressLogsAsc(since time.Duration, fn func(EgressLog) error) error {
+	var where string
+	var args []any
+	if since > 0 {
+		where = " WHERE timestamp >= ?"
+		args = append(args, time.Now().Add(-since).UTC())
+	}
+	q := `SELECT id, timestamp, correlation_id, provider, model, method, protocol, destination,
+	status_code, request_size, response_size, latency_ms, content_class, prompt_hash,
+	pii_detected, pii_scrubbed, policy_action, policy_rule, ai_generated_tag, error_detail,
+	prev_hash, row_hash
+FROM egress_logs` + where + ` ORDER BY id ASC`
+	rows, err := db.conn.Query(q, args...)
+	if err != nil {
+		return fmt.Errorf("scanning egress logs: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var l EgressLog
+		var ts string
+		if err := rows.Scan(
+			&l.ID, &ts, &l.CorrelationID, &l.Provider, &l.Model, &l.Method, &l.Protocol, &l.Destination,
+			&l.StatusCode, &l.RequestSize, &l.ResponseSize, &l.LatencyMs, &l.ContentClass, &l.PromptHash,
+			&l.PIIDetected, &l.PIIScrubbed, &l.PolicyAction, &l.PolicyRule, &l.AIGeneratedTag, &l.ErrorDetail,
+			&l.PrevHash, &l.RowHash,
+		); err != nil {
+			return fmt.Errorf("scan row: %w", err)
+		}
+		l.Timestamp = parseTimestamp(ts)
+		if err := fn(l); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// CountEgressLogs returns the total row count (optionally filtered by since).
+// Used by AuditBundle headers without actually loading rows.
+func (db *DB) CountEgressLogs(since time.Duration) (int64, error) {
+	var n int64
+	var err error
+	if since > 0 {
+		err = db.conn.QueryRow(
+			"SELECT COUNT(*) FROM egress_logs WHERE timestamp >= ?",
+			time.Now().Add(-since).UTC()).Scan(&n)
+	} else {
+		err = db.conn.QueryRow("SELECT COUNT(*) FROM egress_logs").Scan(&n)
+	}
+	return n, err
+}
+
 // ListEgressAnchors returns all anchors ordered by id.
 func (db *DB) ListEgressAnchors() ([]EgressAnchor, error) {
 	rows, err := db.conn.Query(`SELECT id, anchor_timestamp, purged_up_to_id, purged_count, chain_hash, next_row_id

@@ -79,14 +79,15 @@ func (lm *LogMiddleware) ProcessRequest(ctx context.Context, req *jsonrpc.Reques
 			authStatus = ar.Status
 		}
 		lm.enqueue(storage.ActionLog{
-			Timestamp:   now,
-			AgentIDHash: "",
-			Method:      req.Method,
-			Direction:   "in",
-			Success:     true,
-			PayloadSize: len(req.Params),
-			IPAddress:   ipAddr,
-			AuthStatus:  authStatus,
+			Timestamp:     now,
+			AgentIDHash:   "",
+			Method:        req.Method,
+			Direction:     "in",
+			Success:       true,
+			PayloadSize:   len(req.Params),
+			IPAddress:     ipAddr,
+			AuthStatus:    authStatus,
+			CorrelationID: GetCorrelationID(ctx),
 		})
 		if lm.recorder != nil {
 			lm.recorder.Record(telemetry.Event{
@@ -162,16 +163,17 @@ func (lm *LogMiddleware) ProcessResponse(ctx context.Context, resp *jsonrpc.Resp
 	}
 
 	lm.enqueue(storage.ActionLog{
-		Timestamp:   now,
-		AgentIDHash: agentHash,
-		Method:      method,
-		Direction:   "out",
-		Success:     success,
-		LatencyMs:   latencyMs,
-		PayloadSize: len(resp.Result),
-		AuthStatus:  authStatus,
-		ErrorCode:   errorCode,
-		IPAddress:   ipAddr,
+		Timestamp:     now,
+		AgentIDHash:   agentHash,
+		Method:        method,
+		Direction:     "out",
+		Success:       success,
+		LatencyMs:     latencyMs,
+		PayloadSize:   len(resp.Result),
+		AuthStatus:    authStatus,
+		ErrorCode:     errorCode,
+		IPAddress:     ipAddr,
+		CorrelationID: GetCorrelationID(ctx),
 	})
 
 	if lm.recorder != nil {

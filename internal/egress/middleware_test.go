@@ -45,7 +45,7 @@ func TestEgressChainOrder(t *testing.T) {
 	if _, err := chain.ProcessResponse(context.Background(), req, &Response{}); err != nil {
 		t.Fatalf("unexpected response error: %v", err)
 	}
-	want := []string{"req:a", "req:b", "req:c", "resp:c", "resp:b", "resp:a"}
+	want := []string{"req:a", "req:b", "req:c", "resp:a", "resp:b", "resp:c"}
 	if len(log) != len(want) {
 		t.Fatalf("log length = %d, want %d: %v", len(log), len(want), log)
 	}

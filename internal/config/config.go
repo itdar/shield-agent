@@ -100,6 +100,12 @@ type EgressConfig struct {
 type HashChainConfig struct {
 	Enabled   bool   `yaml:"enabled"`
 	Algorithm string `yaml:"algorithm,omitempty"` // only "sha256" supported in Phase 1
+	// DigestPath, when set, enables periodic external-file snapshots of
+	// the chain tail (defense-in-depth against DB-level tampering).
+	DigestPath string `yaml:"digest_path,omitempty"`
+	// DigestIntervalHours controls how often the digest is written.
+	// Zero means daily (24h).
+	DigestIntervalHours int `yaml:"digest_interval_hours,omitempty"`
 }
 
 // PIIScrubConfig (Phase 2).

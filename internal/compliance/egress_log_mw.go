@@ -47,24 +47,30 @@ func (m *EgressLogMiddleware) ProcessRequest(_ context.Context, req *egress.Requ
 
 // ProcessResponse assembles the log row, hashes it, and enqueues it.
 func (m *EgressLogMiddleware) ProcessResponse(ctx context.Context, req *egress.Request, resp *egress.Response) (*egress.Response, error) {
-	row := storage.EgressLog{
-		Timestamp:    req.StartedAt,
-		Provider:     req.Provider,
-		Method:       req.Method,
-		Protocol:     req.Protocol,
-		Destination:  req.Host,
-		StatusCode:   resp.StatusCode,
-		RequestSize:  resp.RequestSize,
-		ResponseSize: resp.ResponseSize,
-		LatencyMs:    resp.LatencyMs,
-		PolicyAction: "allow",
-		ErrorDetail:  resp.ErrorDetail,
+	action := req.PolicyAction
+	if action == "" {
+		action = "allow"
 	}
-	// If an earlier middleware marked this request as blocked, it should
-	// have stored the decision on the Response.ErrorDetail; the status code
-	// communicates the rejection path.
-	if resp.StatusCode == 403 {
-		row.PolicyAction = "block"
+	row := storage.EgressLog{
+		Timestamp:      req.StartedAt,
+		CorrelationID:  req.CorrelationID,
+		Provider:       req.Provider,
+		Model:          resp.Model,
+		Method:         req.Method,
+		Protocol:       req.Protocol,
+		Destination:    req.Host,
+		StatusCode:     resp.StatusCode,
+		RequestSize:    resp.RequestSize,
+		ResponseSize:   resp.ResponseSize,
+		LatencyMs:      resp.LatencyMs,
+		ContentClass:   resp.ContentClass,
+		PromptHash:     resp.PromptHash,
+		PIIDetected:    resp.PIIDetected,
+		PIIScrubbed:    resp.PIIScrubbed,
+		PolicyAction:   action,
+		PolicyRule:     req.PolicyRule,
+		AIGeneratedTag: resp.AIGenerated,
+		ErrorDetail:    resp.ErrorDetail,
 	}
 
 	row = m.chain.ComputeRow(row)
@@ -105,12 +111,16 @@ func RegisterEgressMiddlewares() {
 		if deps.HashChain == nil {
 			return nil, fmt.Errorf("egress_log requires HashChain in dependencies")
 		}
-		return NewEgressLogMiddleware(
-			deps.LogWriter.(*LogWriter),
-			deps.HashChain.(*HashChain),
-			deps.Cfg.PolicyMode,
-			deps.Logger,
-		), nil
+		lw, ok := deps.LogWriter.(*LogWriter)
+		if !ok {
+			return nil, fmt.Errorf("egress_log: LogWriter type mismatch (got %T)", deps.LogWriter)
+		}
+		hc, ok := deps.HashChain.(*HashChain)
+		if !ok {
+			return nil, fmt.Errorf("egress_log: HashChain type mismatch (got %T)", deps.HashChain)
+		}
+		return NewEgressLogMiddleware(lw, hc, deps.Cfg.PolicyMode, deps.Logger), nil
 	})
 	registerPolicy()
+	registerCompliance()
 }
