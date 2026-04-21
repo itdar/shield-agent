@@ -6,12 +6,19 @@ Sits transparently between agents and servers to provide **authentication, prote
 A **~10MB single binary** written in Go. 30 seconds to install, 1 minute to configure.
 
 ```
-┌──────────┐         ┌──────────────────────────┐         ┌──────────────┐
-│ AI Agent │ ──────> │      shield-agent        │ ──────> │ Target Server│
-│ MCP/A2A  │ <────── │  [auth] [guard] [log]    │ <────── │ MCP/A2A/API  │
-└──────────┘         │  monitor :9090 /metrics  │         └──────────────┘
-                     │  Web UI  :9090 /ui       │
-                     └──────────────────────────┘
+                   ingress (proxy/stdio)              egress (AI compliance)
+┌──────────┐       ┌──────────────────────┐       ┌──────────────────┐
+│ Target   │ <──── │     shield-agent     │ <──── │     AI Agent     │
+│ MCP/A2A/ │ ────> │ [auth][guard][log]   │ ────> │ (MCP/A2A/HTTP)   │
+│ API      │       │ [egress_log]         │       └──────────────────┘
+└──────────┘       │ [policy][compliance] │              │
+                   │ monitor :9090        │              │ HTTPS_PROXY
+                   └──────────────────────┘              ▼
+                              │                 ┌──────────────────┐
+                              └───── logs ─────>│ OpenAI/Anthropic │
+                              SQLite + hash     │ Google / private │
+                              chain + digest    │ LLMs             │
+                                                └──────────────────┘
 ```
 
 🌐 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [中文](README.zh.md)
@@ -23,6 +30,7 @@ A **~10MB single binary** written in Go. 30 seconds to install, 1 minute to conf
 - [When should you use this?](#when-should-you-use-this)
 - [Installation](#installation)
 - [Quick Start by Use Case](#quick-start-by-use-case)
+- [Egress Mode (AI Compliance)](#egress-mode-ai-compliance)
 - [Authentication Method Selection Guide](#authentication-method-selection-guide)
 - [Protocol Auto-Detection](#protocol-auto-detection)
 - [Deployment Patterns](#deployment-patterns)
@@ -52,6 +60,7 @@ A **~10MB single binary** written in Go. 30 seconds to install, 1 minute to conf
 | Agent → MCP Server | JSON-RPC (stdio / SSE / Streamable HTTP) | stdio, proxy |
 | Agent → Agent (A2A) | Google A2A protocol | HTTP middleware |
 | Agent → API Server | REST / GraphQL | HTTP middleware |
+| **Agent → external AI API** | **HTTPS CONNECT / HTTP** | **egress (AI compliance)** |
 
 ---
 
@@ -215,6 +224,133 @@ Agents include the token in the request header:
 ```
 Authorization: Bearer a3f8c1...
 ```
+
+---
+
+## Egress Mode (AI Compliance)
+
+> For when you want to intercept **outbound** agent traffic heading to external AI APIs
+
+shield-agent also runs in reverse. The existing proxy/stdio modes defend the
+servers your agents *call into*; egress mode captures the requests your agents
+*send out* to OpenAI, Anthropic, Google, or private LLMs, and produces an
+audit trail shaped for Korea's AI Basic Act (effective 2026-01-22; Art. 23,
+27, 34, 35) and the EU AI Act (Art. 12, 13, 26, 50).
+
+```
+┌──────────┐          ┌────────────────────────┐          ┌──────────────────┐
+│ AI Agent │ ───────> │   shield-agent egress  │ ───────> │ OpenAI /         │
+│          │          │   [policy][compliance] │          │ Anthropic /      │
+│          │          │   [egress_log]         │          │ Google / etc.    │
+└──────────┘          └─────────┬──────────────┘          └──────────────────┘
+                                │
+                       egress_logs + hash chain + daily digest
+```
+
+### Two-phase rollout
+
+| Phase | Mode | Data captured | CA cert |
+|-------|------|---------------|---------|
+| **Phase 1** | Metadata-only | destination, timing, size, provider, policy action | Not required |
+| **Phase 2** | Per-host TLS MITM | above + model, prompt_hash, content_class, PII flags | Required (`shield-agent ca init`) |
+
+Phase 1 alone is enough to answer "which AI services did we call, how often".
+Opt into Phase 2 per host only when body-level tracking is needed.
+
+### Quick start — Phase 1 (no TLS decryption)
+
+```bash
+# Standalone
+shield-agent egress --listen 127.0.0.1:8889
+
+# Or alongside an existing ingress proxy
+shield-agent proxy --with-egress --upstream http://mcp-server:8000
+```
+
+Point the agent at the proxy with a single env var:
+```bash
+export HTTPS_PROXY=http://127.0.0.1:8889
+```
+
+Every request lands in `egress_logs` with `provider`, `destination`,
+`timing`, `policy_action`, and a `row_hash` linking it into the audit chain.
+
+### Audit + verification CLI
+
+```bash
+# Browse egress log rows
+shield-agent logs --direction egress --last 20
+
+# Hash-chain integrity check (tamper detection)
+shield-agent logs --verify
+# → OK (100 entries verified, 2 anchors)
+
+# Export a regulator-ready bundle
+shield-agent logs --export-audit ./audit-bundle.json --since 30d
+```
+
+The bundle carries rows, anchors, a hash-chain proof, and the active policy
+snapshot — a regulator can re-run verification with independent tooling.
+
+### Enabling Phase 2 (TLS MITM)
+
+```bash
+# 1) Generate a CA
+shield-agent ca init
+# 2) Install it into the OS trust store (macOS keychain / Linux update-ca-certificates)
+shield-agent ca trust
+```
+
+Example `shield-agent.yaml`:
+```yaml
+egress:
+  enabled: true
+  listen: "127.0.0.1:8889"
+  policy_mode: "warn"      # flip to "block" to return HTTP 403 on violations
+
+  # per-host opt-in — only these hosts are TLS-terminated
+  mitm_hosts:
+    - "api.openai.com"
+    - "api.anthropic.com"
+
+  hash_chain:
+    enabled: true
+    algorithm: "sha256"
+    # Optional: append-only digest file outside the DB (tamper defense)
+    digest_path: "/var/log/shield-agent/egress-digest.log"
+    digest_interval_hours: 24
+
+  pii_scrub:
+    enabled: true
+    redaction_mode: "mask"   # mask | hash
+  content_tagging:
+    enabled: true
+```
+
+### Security / compliance highlights
+
+- **Drop-free logging**: bounded-but-blocking channel applies backpressure instead of losing audit rows (Principle: Auditability > Performance)
+- **Fail-closed**: in `policy_mode: block` a DB write failure returns HTTP 503 rather than proceeding un-logged
+- **SSRF guard**: CONNECT destinations resolving to RFC1918 / loopback / link-local / cloud metadata IPs are rejected by default
+- **Hash chain + anchor-preserving purge**: old rows can be deleted while keeping the chain verifiable; `--verify` flags any tampering
+- **External daily digest**: defense-in-depth against attackers with full DB access
+- **Korean-first PII patterns**: national ID, phone, driver's licence regexes ship out of the box
+
+### Regulatory mapping
+
+| Requirement | shield-agent feature |
+|-------------|---------------------|
+| EU AI Act Art. 12 (automatic event logging) | `egress_logs` + hash chain |
+| EU AI Act Art. 12(2) (traceability) | `correlation_id` (ingress↔egress) |
+| EU AI Act Art. 50 (generative AI transparency) | Phase 2: `ai_generated_tag`, `content_class`, `X-AI-Generated` header injection |
+| EU AI Act Art. 13 / 26 (transparency, deployer monitoring) | Web UI, Prometheus metrics |
+| Korea AI Basic Act Art. 23 / 27 / 34 / 35 | Audit log retention, impact-assessment export, generative AI labelling |
+
+### Explicitly out of scope
+
+- Model-internal logging and training-data provenance — the AI service provider's obligation
+- Real-time hallucination detection — specialist tooling
+- Legal review — a compliance review (PIPA Art. 23 / GDPR Art. 9 impact of TLS MITM) must be completed before enabling Phase 2 in production
 
 ---
 
@@ -555,6 +691,8 @@ See [ROADMAP.md](ROADMAP.md) for details.
 | Phase 3 — Token & Web UI | **Done** | Token management, Web UI dashboard |
 | Phase 3.5 — Gateway & DID | **Done** | Multi-upstream routing, DID blocklist, verified mode |
 | Phase 4 — Advanced | **Partial** | Agent reputation ✅, protocol auto-detection ✅, WebSocket (planned) |
+| Phase 5 — Egress compliance | **Done** | Metadata-only forward proxy, hash chain, audit export |
+| Phase 5.2 — Egress MITM | **Done** | Per-host TLS MITM, PII scrub, content tagging, correlation_id, daily digest |
 
 ---
 
