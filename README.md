@@ -6,19 +6,27 @@ Sits transparently between agents and servers to provide **authentication, prote
 A **~10MB single binary** written in Go. 30 seconds to install, 1 minute to configure.
 
 ```
-                   ingress (proxy/stdio)              egress (AI compliance)
-┌──────────┐       ┌──────────────────────┐       ┌──────────────────┐
-│ Target   │ <──── │     shield-agent     │ <──── │     AI Agent     │
-│ MCP/A2A/ │ ────> │ [auth][guard][log]   │ ────> │ (MCP/A2A/HTTP)   │
-│ API      │       │ [egress_log]         │       └──────────────────┘
-└──────────┘       │ [policy][compliance] │              │
-                   │ monitor :9090        │              │ HTTPS_PROXY
-                   └──────────────────────┘              ▼
-                              │                 ┌──────────────────┐
-                              └───── logs ─────>│ OpenAI/Anthropic │
-                              SQLite + hash     │ Google / private │
-                              chain + digest    │ LLMs             │
-                                                └──────────────────┘
+ INGRESS MODE — protect your MCP / A2A / API servers
+ ──────────────────────────────────────────────────────────
+  External             ┌──────────────────┐             Your
+  Agent   ── req  ──▶  │   shield-agent   │  ── req ──▶ MCP /
+          ◀── res  ──  │   :8888 proxy    │  ◀── res ── A2A /
+                       │ auth·guard·log   │             API
+                       └──────────────────┘
+
+ EGRESS MODE — audit outbound calls to external AI APIs
+ ──────────────────────────────────────────────────────────
+  Your AI              ┌──────────────────┐             OpenAI /
+  Agent   ── HTTPS ──▶ │   shield-agent   │  ─ HTTPS ─▶ Anthropic /
+          ◀──────────  │   :8889 egress   │  ◀───────── Google /
+  (HTTPS_PROXY)        │ MITM·log·policy  │             private LLM
+                       └──────────────────┘
+
+                 both modes write to  ▼
+              ┌────────────────────────────────┐
+              │ SQLite + hash chain + digest   │
+              │ Prometheus :9090  ·  Web /ui   │
+              └────────────────────────────────┘
 ```
 
 🌐 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [中文](README.zh.md)
