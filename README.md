@@ -29,7 +29,7 @@ A **~10MB single binary** written in Go. 30 seconds to install, 1 minute to conf
               └────────────────────────────────┘
 ```
 
-🌐 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [中文](README.zh.md)
+🌐 [English](README.md) | [한국어](README.ko.md)
 
 ---
 
@@ -46,7 +46,6 @@ A **~10MB single binary** written in Go. 30 seconds to install, 1 minute to conf
 - [Monitoring](#monitoring)
 - [Web UI](#web-ui)
 - [Agent Reputation](#agent-reputation)
-- [Roadmap](#roadmap)
 
 ---
 
@@ -685,22 +684,6 @@ When reputation is enabled, the following endpoints are available on the monitor
 | Volume bonus | +0.10 | Higher volume = more trust data |
 | Latency | -0.10 | Slow responses reduce trust |
 | Rate limit hits | -0.05 | Exceeding rate limits |
-
----
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for details.
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| Phase 1 — Core MVP | **Done** | Transport, Auth, Guard, Log, Middleware Chain |
-| Phase 2 — Deployment & Installation | **Done** | Docker, Homebrew, GoReleaser, CI/CD |
-| Phase 3 — Token & Web UI | **Done** | Token management, Web UI dashboard |
-| Phase 3.5 — Gateway & DID | **Done** | Multi-upstream routing, DID blocklist, verified mode |
-| Phase 4 — Advanced | **Partial** | Agent reputation ✅, protocol auto-detection ✅, WebSocket (planned) |
-| Phase 5 — Egress compliance | **Done** | Metadata-only forward proxy, hash chain, audit export |
-| Phase 5.2 — Egress MITM | **Done** | Per-host TLS MITM, PII scrub, content tagging, correlation_id, daily digest |
 
 ---
 

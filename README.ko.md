@@ -29,7 +29,7 @@ Go로 작성된 **~10MB 단일 바이너리**. 설치 30초, 설정 1분.
               └────────────────────────────────┘
 ```
 
-🌐 [English](README.md) | [한국어](README.ko.md) | [日本語](README.ja.md) | [中文](README.zh.md)
+🌐 [English](README.md) | [한국어](README.ko.md)
 
 ---
 
@@ -685,22 +685,6 @@ shield-agent reputation --format json
 | 볼륨 보너스 | +0.10 | 높은 트래픽 = 더 많은 신뢰 데이터 |
 | 레이턴시 | -0.10 | 느린 응답은 신뢰도를 낮춤 |
 | Rate limit 초과 | -0.05 | rate limit을 초과한 횟수 |
-
----
-
-## 로드맵
-
-자세한 내용은 [ROADMAP.md](ROADMAP.md)를 참고하세요.
-
-| Phase | 상태 | 설명 |
-|-------|------|------|
-| Phase 1 — Core MVP | **완료** | Transport, Auth, Guard, Log, Middleware Chain |
-| Phase 2 — 배포 & 설치 | **완료** | Docker, Homebrew, GoReleaser, CI/CD |
-| Phase 3 — 토큰 & Web UI | **완료** | 토큰 관리, Web UI 대시보드 |
-| Phase 3.5 — Gateway & DID | **완료** | Multi-upstream 라우팅, DID blocklist, verified 모드 |
-| Phase 4 — 고도화 | **일부 완료** | Agent 평판 ✅, 프로토콜 자동 감지 ✅, WebSocket (예정) |
-| Phase 5 — Egress 컴플라이언스 | **완료** | Metadata-only forward proxy, 해시 체인, 감사 export |
-| Phase 5.2 — Egress MITM | **완료** | per-host TLS MITM, PII scrub, content tagging, correlation_id, daily digest |
 
 ---
 
